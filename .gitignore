@@ -1,0 +1,15 @@
+# 临时脚本 / 调试产物
+tmp/
+*.tmp
+*.log
+*.bak
+node_modules/
+
+# 系统文件
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 编辑器
+.vscode/
+.idea/
