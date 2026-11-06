@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>巡星记 · Solar Odyssey</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%23ffcc33'/%3E%3Cellipse cx='16' cy='16' rx='14' ry='5' fill='none' stroke='%236fa8ff' stroke-width='1.6' transform='rotate(-22 16 16)'/%3E%3C/svg%3E">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body {
@@ -35,7 +36,21 @@
     padding:8px 14px calc(10px + env(safe-area-inset-bottom));
     background:linear-gradient(to top, rgba(0,0,0,.82), rgba(0,0,0,.25));
     backdrop-filter:blur(6px);
+    /* 窄屏时底栏内容会超出视口 → 允许横向滑动，绝不把右侧按钮挤出屏幕 */
+    overflow-x:auto; overflow-y:hidden;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
+  #bottombar::-webkit-scrollbar { display:none; }
+  #bottombar .spacer { flex:1 0 8px; }
+  /* 火箭 / 真实任务 / 静音：独立固定层，任何视口宽度都在屏幕内 */
+  #toolbar {
+    position:fixed; right:10px; z-index:11;
+    bottom:calc(96px + env(safe-area-inset-bottom));
+    display:flex; gap:8px; align-items:center;
+  }
+  #toolbar button { width:38px; height:38px; padding:0; font-size:17px; border-radius:10px; }
+  /* 面板展开时把工具条藏起来，避免和面板叠在一起 */
+  body.rp-open #toolbar { opacity:0; pointer-events:none; }
   .grp { display:flex; align-items:center; gap:6px; flex-shrink:0; }
   .sep { width:1px; height:26px; background:rgba(255,255,255,.12); margin:0 4px; }
   button {
@@ -61,6 +76,7 @@
     border:1px solid rgba(255,255,255,.18); border-radius:14px;
     padding:10px 14px 8px; color:#eee; font-size:13px;
     transform:translateY(120%); transition:transform .25s ease;
+    max-height:calc(100vh - 130px); overflow-y:auto;
   }
   #rocketPanel.show { transform:translateY(0); }
   .rp-row { display:flex; align-items:center; gap:8px; margin:4px 0; }
@@ -74,11 +90,63 @@
   #rp-launch:hover { background:#ff6666; }
   #rp-launch:disabled { background:#555; color:#888; }
   #rp-reset { padding:8px 16px; background:rgba(255,255,255,.12); border-radius:8px; color:#ddd; }
+  .rp-window { width:100%; margin-top:6px; padding:7px; background:rgba(102,204,255,.16);
+               border:1px solid rgba(102,204,255,.5); border-radius:8px; color:#9fdcff; font-size:12px; }
+  .rp-window:hover { background:rgba(102,204,255,.28); }
   .rp-status { font-size:12px; color:#999; text-align:center; margin-top:6px; }
   .rp-status.escape { color:#66ccff; }
   .rp-status.elliptical { color:#aadd66; }
   .rp-status.reentry { color:#ffaa66; }
   .rp-status.crash { color:#ff5555; }
+  .rp-status.ga_flyby { color:#c8a0ff; }
+  .rp-note { margin-top:8px; font-size:11px; line-height:1.6; color:#8f8f8f; }
+  .rp-note summary { cursor:pointer; color:#9fb8d0; padding:3px 0; list-style:none; }
+  .rp-note summary::-webkit-details-marker { display:none; }
+  .rp-note summary::before { content:'▸ '; }
+  .rp-note[open] summary::before { content:'▾ '; }
+  .rp-note ul { margin:4px 0 0; padding-left:15px; }
+  .rp-note li { margin:4px 0; }
+  .rp-note b { color:#d5d5d5; font-weight:600; }
+  .rp-row label b { color:#e6e6e6; font-weight:600; }
+  .rp-row label i { font-style:normal; font-size:10.5px; color:#7d8794; margin-left:2px; }
+  .rp-status small.rp-analogy { display:block; font-size:10.5px; color:#6f7c8c; margin-top:2px; }
+  /* 真实任务面板 */
+  #missionBtn { font-size:15px; background:rgba(255,255,255,.1); border-radius:50%; width:32px; height:32px; }
+  #missionBtn.active { background:rgba(200,160,255,.32); }
+  #missionPanel {
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-48%) scale(.96);
+    width:min(780px, calc(100vw - 24px)); max-height:calc(100vh - 56px);
+    z-index:12; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    background:rgba(6,10,20,.93); backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.2); border-radius:16px;
+    padding:16px 18px 18px; color:#e8eef6; font-size:13px; line-height:1.68;
+    opacity:0; pointer-events:none; transition:opacity .22s ease, transform .22s ease;
+  }
+  #missionPanel.show { opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1); }
+  #missionPanel h2 { margin:0; font-size:16px; color:#fff; }
+  #missionPanel .mp-sub { margin:2px 0 10px; font-size:11.5px; color:#8fa3b8; }
+  #missionPanel .mp-close { position:absolute; top:9px; right:11px; width:26px; height:26px;
+    background:rgba(255,255,255,.1); border:none; border-radius:50%; color:#cfd8e3; font-size:14px; cursor:pointer; }
+  #missionPanel .mp-close:hover { background:rgba(255,255,255,.22); }
+  .mcard { border:1px solid rgba(255,255,255,.14); border-radius:12px; padding:11px 13px 12px;
+           margin:10px 0; background:rgba(255,255,255,.04); }
+  .mcard h3 { margin:0 0 1px; font-size:14.5px; color:#fff; display:flex; gap:9px; align-items:baseline; flex-wrap:wrap; }
+  .mcard h3 .mc-year { font-size:11px; color:#8fa3b8; font-weight:400; }
+  .mcard h3 .mc-tag { font-size:10.5px; padding:1px 8px; border-radius:999px; border:1px solid currentColor; font-weight:400; }
+  .mcard .mc-lede { font-size:12px; color:#b9c8d8; margin:4px 0 6px; }
+  .mcard table { width:100%; border-collapse:collapse; font-size:11.5px; margin:4px 0 6px; }
+  .mcard td { padding:3px 5px; border-bottom:1px dashed rgba(255,255,255,.1); vertical-align:top; }
+  .mcard td:first-child { white-space:nowrap; color:#d3e0ee; }
+  .mcard .mc-acc { color:#9fe08a; } .mcard .mc-dec { color:#ffb27a; }
+  .mcard .mc-tip { font-size:11.5px; color:#a8c4e0; margin:5px 0 2px; }
+  .mcard .mc-ck { font-size:11.5px; color:#c9b8f2; margin:2px 0 8px; }
+  .mcard .mc-hops { margin:6px 0 4px; }
+  .mcard .mc-hop { display:flex; gap:9px; align-items:flex-start; margin:5px 0; }
+  .mcard .mc-play { flex:0 0 auto; padding:6px 13px; background:rgba(255,200,50,.16); border:1px solid rgba(255,200,50,.45);
+    border-radius:8px; color:#ffe08a; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .mcard .mc-play:hover { background:rgba(255,200,50,.32); }
+  .mcard .mc-hopnote { font-size:11px; color:#93a7ba; line-height:1.55; flex:1 1 auto; }
+  .mcard .mc-note { font-size:11px; color:#7f8fa0; margin:7px 0 0; }
 
   /* 行星列表（可单指左右滑动） */
   #planets {
@@ -152,23 +220,27 @@
     <button id="todayBtn">今天</button>
   </div>
   <div class="spacer"></div>
-  <button id="rocketBtn" title="🚀 火箭">🚀</button>
-  <button id="muteBtn" class="mute">🔇</button>
 </div>
+</div>
+
+<div id="toolbar">
+  <button id="rocketBtn" title="🚀 火箭">🚀</button>
+  <button id="missionBtn" title="📖 真实任务">📖</button>
+  <button id="muteBtn" class="mute">🔇</button>
 </div>
 
 <!-- 火箭参数面板（从 dock 上滑） -->
 <div id="rocketPanel">
   <div class="rp-row">
-    <label>推力 <span id="rp-gval">2.0</span> g</label>
+    <label><b>发动机多猛</b> <span id="rp-gval">2.0</span> g<i>推力</i></label>
     <input id="rp-g" type="range" min="1.05" max="5" step="0.1" value="2">
   </div>
   <div class="rp-row">
-    <label>主动段 <span id="rp-bval">15</span> 分钟</label>
+    <label><b>点多久</b> <span id="rp-bval">15</span> 分钟<i>主动段</i></label>
     <input id="rp-b" type="range" min="3" max="60" step="1" value="15">
   </div>
   <div class="rp-row">
-    <label>方位角 <span id="rp-azval">0</span>°</label>
+    <label><b>朝几点钟方向打</b> <span id="rp-azval">0</span>°<i>方位角</i></label>
     <input id="rp-az" type="range" min="0" max="360" step="15" value="0">
   </div>
   <div class="rp-presets">
@@ -177,11 +249,57 @@
     <button data-preset="mars">🔴 去火星</button>
     <button data-preset="moon">🌙 月球</button>
   </div>
+  <div class="rp-presets">
+    <button data-preset="jupiter">🪐 木星借力</button>
+  </div>
   <div class="rp-actions">
     <button id="rp-launch">🚀 发射</button>
     <button id="rp-reset">↺ 重置</button>
   </div>
+  <button id="rp-window" class="rp-window" style="display:none">🎯 跳到最近发射窗口</button>
   <div id="rp-status" class="rp-status">调整参数，看灰色虚线预览轨迹</div>
+  <details class="rp-note">
+    <summary>科学家笔记</summary>
+    <ul>
+      <li><b>发射窗口是真的</b>：想去火星，得等地球和火星转到合适的位置。地火相位角要降到 <b>44.3°</b>，
+          而地球和火星要 <b>2.1353 年（约 780 天）</b>才对齐一次，窗口宽约 <b>36 天</b>。
+          真实下一次窗口是 <b>2026-11-16 ~ 12-22</b>，本应用解出 <b>2026-11-17</b>。
+          窗口外发射，火箭照样飞，只是会从火星旁边几千万公里掠过——这就是"错过窗口"的真实后果。</li>
+      <li><b>外行星必须借力</b>：想直接逃出太阳系，日心速度得再多 <b>12.3 km/s</b>（42.1 太阳逃逸 − 29.8 地球轨道），
+          火箭带不动这么多。本模型把借力算成三段接力：先被太阳引力送到行星引力圈边上，再贴着行星拐个弯，
+          最后把行星的公转速度加回自己身上（严格 patched-conic）。求解器会同时定出发射日、主动段时长与深空机动 Δv，
+          把近心点压到旅行者1号实测的 <b>34.9 万 km（4.9 R_J）</b>，并选从木星「正后方」掠过（加速的那一侧），
+          偏转 125°~135°，日心速度约 8 → 19 km/s，越过木星处的太阳逃逸阈值 18.5 km/s → 直接飞出太阳系。
+          但要接着遇到土星，出射方向必须精确指向土星将到达的位置——本模型未做这个瞄准，所以借完木星不会遇到土星；
+          真实旅行者号靠<b>木星→土星→天王星→海王星</b>连环借力，每次的 B 平面角都专门设计过。</li>
+      <li><b>借力不只当加速器，也是减速器</b>：帕克太阳探测器连借 <b>7 次金星</b>，每过一次都被金星"拽"一下、
+          把速度掉一点，日心轨道越掉越靠近太阳，最后冲进日冕；MESSENGER 借 <b>2 次金星</b>后再用 <b>3 次水星</b>减速，
+          最后落到水星轨道。本模型对内行星先用<b>逆行注入</b>（速度比地球轨道速度小）掉到内侧，
+          再在金星/水星近心点附近建双曲线求解，同样能把"越飞越慢"算出来。</li>
+      <li><b>阿波罗 11 号也能复现</b>：把日期设成真实的 <b>1969-07-16 13:32 UTC</b>、推力 <b>1.05 g</b>、
+          主动段 <b>30 分钟</b>，本模型算出的月球引力圈偏差约 <b>6.0 万 km</b>（引力圈 6.6 万 km 以内），
+          抵达时刻 <b>1969-07-20 19:31 UTC</b>，与真实着陆（<b>20:17 UTC</b>，静海）只差约 <b>45 分钟</b>。
+          本模型只算到"进入月球引力圈"，真正的绕月、分离、着陆、起飞是另四段，本应用没有展开。</li>
+      <li><b>简化之处</b>：① 主动段是单次连续点火 + 重力转弯，不模拟多级分离与精确末制导；
+          ② 逃逸余速方向按"轨道注入设计"取为地球公转切向（真实任务靠发射方位/倾角对准目标）；
+          ③ 火星轨道面比黄道面倾斜 1.85°，需要一次 <b>深空机动 Δv≈0.53 km/s</b> 才能对准，该修正已自动计算；
+          ④ 引力弹弓用 patched-conic 近似，未做行星摄动与 B 平面角优化；
+          ⑤ 月球用 Meeus 低精度星历（误差 &lt;0.3°）。</li>
+      <li><b>已经算准的部分</b>：日心段用解析开普勒传播（不是数值积分），传播一年的偏差仅 62,000 km（星历近似误差量级）；
+          火星交会偏差实测 <b>533 km</b>（引力圈 577,000 km 内）；借力按三体分段计算（日心圆锥曲线 + 行星中心双曲线），
+          近心点高度由求解器压到目标值附近（残差几万 km，相对 34.9 万 km 近心点 &lt;15%），
+          速度增益满足物理上限（借力后 ≤ 行星公转速度 + v∞）。</li>
+    </ul>
+  </details>
+</div>
+
+<!-- 真实任务面板 -->
+<div id="missionPanel">
+  <button class="mp-close" id="missionClose" title="关闭">✕</button>
+  <h2>📖 真实任务档案</h2>
+  <div class="mp-sub">这些都是真的飞过的人类探测器。下面每一张卡片都记着它们的真实日期和真实数字，
+    点「试一试」就能把这次借力装进上面的火箭面板，自己推一遍。</div>
+  <div id="missionList"></div>
 </div>
 
 <script>
@@ -237,6 +355,139 @@ function keplerPos(el, T){
 function dateToT(date){
   const jd = (date.getTime()/86400000) + 2440587.5;
   return (jd - 2451545.0)/36525.0;
+}
+
+// 天体在指定时刻的日心位置 + 速度（场景坐标系，y 轴 = 黄道北极）
+// 速度单位 AU/yr：星历导数是「AU / 儒略世纪」，而 1 儒略世纪 = 100 年 → 需除以 100
+function bodyStateAt(key, T){
+  const p  = keplerPos(JPL[key], T);
+  const h  = 0.5/36525;                    // ±0.5 天，中心差分
+  const pm = keplerPos(JPL[key], T - h);
+  const pp = keplerPos(JPL[key], T + h);
+  return {
+    pos: [p.x, p.y, p.z],
+    vel: [(pp.x-pm.x)/(2*h)/100, (pp.y-pm.y)/(2*h)/100, (pp.z-pm.z)/(2*h)/100]
+  };
+}
+
+// 天体状态（解析速度版）：星历速度改用解析导数，省掉两次开普勒求解。
+// 只用于引力弹弓求解器的高频调用；最终结果仍以 bodyStateAt 为准做校验。
+function bodyStateFast(key, T){
+  const el = JPL[key];
+  const a = el.a0 + el.a1*T, e = el.e0 + el.e1*T;
+  const I = (el.I0 + el.I1*T)*DEG;
+  const L = (el.L0 + el.L1*T)*DEG;
+  const p = (el.p0 + el.p1*T)*DEG;
+  const O = (el.O0 + el.O1*T)*DEG;
+  let M = L - p;
+  M = ((M % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+  let E = M;
+  for(let i=0;i<10;i++) E -= (E - e*Math.sin(E) - M)/(1 - e*Math.cos(E));
+  const b = a*Math.sqrt(Math.max(0,1-e*e));
+  const cE = Math.cos(E), sE = Math.sin(E);
+  const Edot = Math.sqrt(MU_SUN_AU/(a*a*a))/(1 - e*cE);
+  const xp = a*(cE-e), yp = b*sE;
+  const vxp = -a*sE*Edot, vyp = b*cE*Edot;
+  const w = p - O;
+  const cw=Math.cos(w), sw=Math.sin(w), cO=Math.cos(O), sO=Math.sin(O), cI=Math.cos(I), sI=Math.sin(I);
+  const x  = xp*(cw*cO - sw*sO*cI) - yp*(sw*cO + cw*sO*cI);
+  const y  = xp*(cw*sO + sw*cO*cI) + yp*(cw*cO*cI - sw*sO);
+  const z  = xp*(sw*sI) + yp*(cw*sI);
+  const vx = vxp*(cw*cO - sw*sO*cI) - vyp*(sw*cO + cw*sO*cI);
+  const vy = vxp*(cw*sO + sw*cO*cI) + vyp*(cw*cO*cI - sw*sO);
+  const vz = vxp*(sw*sI) + vyp*(cw*sI);
+  return {pos:[x, z, -y], vel:[vx, vz, -vy]};
+}
+
+// 地球轨道局部标架（用于把地心段坐标映射到真实日心系）
+//   x̂ = 径向（背离太阳）→ 发射点「天顶」方向
+//   ẑ = 顺行切向 → 方位角 0 = 正东顺行（与地球公转同向）
+//   ŷ = −轨道法向（保证局部系仍为右手系）
+// 世界坐标 = M · 局部坐标，M 为行主序 3×3
+function earthLocalFrame(T){
+  const st = bodyStateAt('Earth', T);
+  const R = st.pos, V = st.vel;
+  const r = Math.hypot(R[0],R[1],R[2]);
+  const rh = [R[0]/r, R[1]/r, R[2]/r];
+  const vr = V[0]*rh[0]+V[1]*rh[1]+V[2]*rh[2];
+  let th = [V[0]-vr*rh[0], V[1]-vr*rh[1], V[2]-vr*rh[2]];
+  const tn = Math.hypot(th[0],th[1],th[2]);
+  th = [th[0]/tn, th[1]/tn, th[2]/tn];
+  const nh = [rh[1]*th[2]-rh[2]*th[1], rh[2]*th[0]-rh[0]*th[2], rh[0]*th[1]-rh[1]*th[0]];
+  return {
+    rHat: rh, tHat: th, nHat: nh,
+    pos: R, vel: V,
+    M: [
+      rh[0], -nh[0], th[0],
+      rh[1], -nh[1], th[1],
+      rh[2], -nh[2], th[2]
+    ]
+  };
+}
+
+// 儒略世纪 → 毫秒
+function tCenturiesToMs(T){ return ((T*36525 + 2451545.0) - 2440587.5)*86400000; }
+
+// 世界系（y-up 场景坐标）下的天体位置
+function bodyWorldAt(key, T){ const p = keplerPos(JPL[key], T); return [p.x, p.y, p.z]; }
+
+// ---------- 月球真实位置（Meeus 低精度星历） ----------
+// 原先用「圆轨道 + 固定周期」近似月相，结果相位恒定偏 ~165°，
+// 1969 年阿波罗登月这类真实日期任务必须用真实星历才能对上。
+const MOON_MU_KM = 4.9028e3;          // GM月 (km³/s²)
+const MOON_R_KM  = 1737.4;            // 月球半径 (km)
+function moonJDN(dayT){ return dayT + 2440587.5; }
+function precInLonDeg(T){ return (5038.481484*T - 1.0790069*T*T + 0.001140*T*T*T)/3600; }
+function moonTrueState(dayT){
+  const n = moonJDN(dayT) - 2451545.0;
+  const T = n/36525;
+  const D2R = Math.PI/180;
+  const Lp = 218.3164477 + 13.17639648*n;
+  const D  = 297.8501921 + 12.19074912*n;
+  const M  = 357.5291092 +  0.98560028*n;
+  const Mp = 134.9633964 + 13.06499295*n;
+  const F  =  93.2720950 + 13.22935024*n;
+  const s = (x)=>Math.sin(x*D2R), c = (x)=>Math.cos(x*D2R);
+  const lonDate = Lp
+    + 6.288774*s(Mp) + 1.274027*s(2*D - Mp) + 0.658314*s(2*D)
+    + 0.213618*s(2*Mp) - 0.185116*s(M) - 0.114332*s(2*F)
+    + 0.058793*s(2*D - 2*Mp) + 0.057066*s(2*D - M - Mp) + 0.053322*s(2*D + Mp)
+    + 0.045758*s(2*D - M) - 0.040923*s(M - Mp) - 0.034720*s(D - Mp)
+    - 0.030383*s(M + Mp) + 0.015327*s(2*D - 2*F) - 0.012528*s(Mp + 2*F)
+    + 0.010980*s(Mp - 2*F) + 0.010675*s(4*D - Mp) + 0.010034*s(3*Mp);
+  const dist = 385000.56
+    - 20905.355*c(Mp) - 3699.111*c(2*D - Mp) - 2955.968*c(2*D)
+    - 569.925*c(2*Mp) + 48.888*c(M) - 3.149*c(2*F) + 246.158*c(2*D - 2*Mp)
+    - 152.138*c(2*D - M - Mp) - 170.733*c(2*D + Mp) - 204.586*c(2*D - M)
+    - 129.620*c(D - Mp) + 108.743*c(D + Mp);
+  let lon = lonDate - precInLonDeg(T);
+  lon = ((lon % 360) + 360) % 360;
+  return {lon: lon, dist: dist};
+}
+// 月球相对地球的偏移（AU，场景系）：场景 x = r cos(黄经)，场景 z = -r sin(黄经)
+function moonOffsetAU(dayT){
+  const st = moonTrueState(dayT);
+  const r = st.dist*R2AU;
+  const lam = st.lon*Math.PI/180;
+  return [r*Math.cos(lam), 0, -r*Math.sin(lam)];
+}
+// 卫星在场景 x-z 平面内的相位角（顺行，与行星公转同向）
+// 场景系顺行方向 = (sinθ,0,−cosθ)，而 (cos ang, sin ang) 随 ang 递增的切向是 (−sin ang, cos ang)，
+// 故取 ang = −(dayT/period)·2π 才与行星同向（原来的正号会让月球逆行）
+function moonSceneAngle(dayT, period){ return -((dayT/period)*Math.PI*2); }
+
+// 应用内月球模型的世界位置（与渲染完全一致：世界 x-z 平面内的圆轨道）
+function moonWorldAt(dayT, T){
+  const ep = bodyWorldAt('Earth', T);
+  const off = moonOffsetAU(dayT);
+  return [ep[0]+off[0], ep[1]+off[1], ep[2]+off[2]];
+}
+
+// 3×3 矩阵（行主序）作用于向量
+function matVec(M, v){
+  return [M[0]*v[0]+M[1]*v[1]+M[2]*v[2],
+          M[3]*v[0]+M[4]*v[1]+M[5]*v[2],
+          M[6]*v[0]+M[7]*v[1]+M[8]*v[2]];
 }
 
 /* ---------- 天体半径 (km) 转 AU ---------- */
@@ -582,6 +833,10 @@ function makeOrbit(el, T){
 const _T0 = dateToT(new Date());
 for(const k in JPL){ orbitLines[k] = makeOrbit(JPL[k], _T0); scene.add(orbitLines[k]); }
 
+/* ---------- 时间系统（声明提前，供火箭轨迹基准时刻使用） ---------- */
+let simDate = new Date();
+let speed = 86400; // 秒/实时秒 (86400 = 1天/秒)
+
 /* ---------- 火箭系统（先搭物理核心，console 验证后再接 UI 和渲染） ---------- */
 const MU_EARTH_AU = 3.986e5 * 31557600**2 / 149597870.7**3; // GM⊕ ≈ 1.18e-4 AU³/yr²
 const MU_SUN_AU = 4*Math.PI*Math.PI;
@@ -592,6 +847,45 @@ function auPerYrToKmPerSec(v){ return v*KM_PER_AU/(365.25*86400); }
 function kmPerSecToAuPerYr(v){ return v*(365.25*86400)/KM_PER_AU; }
 const MU_MOON_AU = 4.9028e3 * 31557600**2 / 149597870.7**3; // GM☾ ≈ 4.9e3 km³/s² → AU³/yr²
 const MU_MARS_AU = 4.2828e4 * 31557600**2 / 149597870.7**3; // GM♂ ≈ 4.28e4 km³/s² → AU³/yr²
+const MARS_SOI_KM = 577000;  // 火星引力圈半径（Hill 球近似）
+const MOON_SOI_KM = 66000;   // 月球引力圈半径
+const MU_JUPITER_AU = 1.26686e8 * 31557600**2 / 149597870.7**3; // GM♃ ≈ 1.267e8 km³/s²
+const R_JUPITER_AU  = 69911*R2AU;
+const JUPITER_SOI_KM = 53000000; // 木星引力圈（Hill 球近似）
+const MU_SATURN_AU  = 3.79312e7 * 31557600**2 / 149597870.7**3; // GM♄ ≈ 3.79e7 km³/s²
+const R_SATURN_AU   = 60268*R2AU;
+const SATURN_SOI_KM = 62000000;                                 // 土星引力圈（Hill 球近似）
+const MU_URANUS_AU  = 5.7939e6 * 31557600**2 / 149597870.7**3;   // GM♅ ≈ 5.794e6 km³/s²
+const R_URANUS_AU   = 25559*R2AU;
+const URANUS_SOI_KM = 51800000;                                 // 天王星引力圈（Hill 球近似）
+const MU_NEPTUNE_AU = 6.8365e6 * 31557600**2 / 149597870.7**3;   // GM♆ ≈ 6.837e6 km³/s²
+const R_NEPTUNE_AU  = 24760*R2AU;
+const NEPTUNE_SOI_KM= 86500000;                                 // 海王星引力圈（Hill 球近似）
+const MU_VENUS_AU   = 3.24859e5 * 31557600**2 / 149597870.7**3;  // GM♀ ≈ 3.249e5 km³/s²
+const R_VENUS_AU    = 6051.8*R2AU;
+const VENUS_SOI_KM  = 616000;                                   // 金星引力圈（Hill 球近似）
+const MU_MERCURY_AU = 2.2032e4 * 31557600**2 / 149597870.7**3;   // GM☿ ≈ 2.203e4 km³/s²
+const R_MERCURY_AU  = 2439.7*R2AU;
+const MERCURY_SOI_KM= 112000;                                   // 水星引力圈（Hill 球近似）
+// 深空目标表：rMean = 平均日心距 (AU)，nDeg = 平均角速度 (°/天)
+const TARGETS = {
+  mars:    {key:'Mars',    cn:'火星', rMean:1.5237, nDeg:0.5240, soiKm:577000},
+  jupiter: {key:'Jupiter', cn:'木星', rMean:5.2029, nDeg:0.0833, soiKm:53000000},
+  saturn:  {key:'Saturn',  cn:'土星', rMean:9.5367, nDeg:0.0335, soiKm:62000000},
+  uranus:  {key:'Uranus',  cn:'天王星', rMean:19.191, nDeg:0.011731, soiKm:51800000},
+  neptune: {key:'Neptune', cn:'海王星', rMean:30.069, nDeg:0.005980, soiKm:86500000},
+  venus:   {key:'Venus',   cn:'金星', rMean:0.7233, nDeg:1.6021,  soiKm:616000},
+  mercury: {key:'Mercury', cn:'水星', rMean:0.3871, nDeg:4.1490,  soiKm:112000}
+};
+// 引力弹弓用：行星中心双曲线的引力常数 / 半径 / 引力圈（AU）
+const GA_PLANETS = {
+  jupiter:{key:'Jupiter', cn:'木星', mu:MU_JUPITER_AU, R:R_JUPITER_AU, soi:JUPITER_SOI_KM*R2AU},
+  saturn: {key:'Saturn',  cn:'土星', mu:MU_SATURN_AU,  R:R_SATURN_AU,  soi:SATURN_SOI_KM*R2AU},
+  uranus: {key:'Uranus',  cn:'天王星', mu:MU_URANUS_AU,  R:R_URANUS_AU,  soi:URANUS_SOI_KM*R2AU},
+  neptune:{key:'Neptune', cn:'海王星', mu:MU_NEPTUNE_AU, R:R_NEPTUNE_AU, soi:NEPTUNE_SOI_KM*R2AU},
+  venus:  {key:'Venus',   cn:'金星', mu:MU_VENUS_AU,   R:R_VENUS_AU,   soi:VENUS_SOI_KM*R2AU},
+  mercury:{key:'Mercury', cn:'水星', mu:MU_MERCURY_AU, R:R_MERCURY_AU, soi:MERCURY_SOI_KM*R2AU}
+};
 
 // 生成绕目标天体的「入轨捕获」轨道（理想化交会）：以 r0AU 为远点半径、切向速度=vFrac×环绕速度起步，
 // 形成封闭开普勒椭圆（vFrac<1 → 起点即远点、近点朝向目标一侧），解析采样 nOrbits 圈。
@@ -604,8 +898,12 @@ function buildCaptureOrbit(muAU, r0AU, vFrac, rHat3, nOrbits, t0){
   const a = -muAU/(2*E);
   const e = Math.sqrt(Math.max(0, 1 + 2*E*h*h/(muAU*muAU)));
   const periodYr = 2*Math.PI*Math.sqrt(a*a*a/muAU);
-  const xx = -rHat3[0], xz = -rHat3[2];    // 近点方向 = −r̂（起点为远点）
-  const yx = rHat3[2], yz = -rHat3[0];     // 切向（x-z 平面内），与转移到达方向一致 → 顺行入轨（勿翻转，否则会「逆行」）
+  const ux = -rHat3[0], uy = -rHat3[1], uz = -rHat3[2];    // 近点方向 = −r̂（起点为远点）
+  // 切向 T：⊥r̂。注意位置 = r·(cosN·近点方向 + sinN·T)，而远点之后 sinN<0，
+  // 实际运动方向 = −T。取 T = −顺行方向 (sinθ,0,−cosθ) → 运动方向才是顺行入轨。
+  let tx = -rHat3[2], ty = 0, tz = rHat3[0];
+  const tn = Math.hypot(tx, ty, tz) || 1;
+  tx/=tn; ty/=tn; tz/=tn;
   const steps = Math.max(240, Math.floor(240*nOrbits));
   const se = Math.sqrt(1 - e*e);
   const pts = [];
@@ -616,12 +914,170 @@ function buildCaptureOrbit(muAU, r0AU, vFrac, rHat3, nOrbits, t0){
     const cosN = (Math.cos(Ec) - e)/(1 - e*Math.cos(Ec));
     const sinN = (se*Math.sin(Ec))/(1 - e*Math.cos(Ec));
     const r = a*(1 - e*Math.cos(Ec));
-    pts.push({ x:(r*cosN)*xx + (r*sinN)*yx, y:0, z:(r*cosN)*xz + (r*sinN)*yz, t: t0 + periodYr*nOrbits*s/steps });
+    pts.push({ x:(r*cosN)*ux + (r*sinN)*tx, y:(r*cosN)*uy + (r*sinN)*ty, z:(r*cosN)*uz + (r*sinN)*tz, t: t0 + periodYr*nOrbits*s/steps });
   }
   return { pts, periodYr, a, e };
 }
 
-/** 三段式轨迹预计算（纯函数） */
+/* ---------- 日心段积分（可复用于发射窗口搜索） ---------- */
+// 由日心状态求轨道要素
+function orbitalElements(r, v, mu){
+  const rm = Math.hypot(r[0], r[1], r[2]);
+  const v2 = v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
+  const E = v2/2 - mu/rm;
+  const escape = E >= 0;
+  let periAU = 0, apoAU = 0, vInf = 0, a = 0, e = 0;
+  if(!escape){
+    a = -mu/(2*E);
+    const h = [r[1]*v[2]-r[2]*v[1], r[2]*v[0]-r[0]*v[2], r[0]*v[1]-r[1]*v[0]];
+    const h2 = h[0]*h[0] + h[1]*h[1] + h[2]*h[2];
+    e = Math.sqrt(Math.max(0, 1 + 2*E*h2/(mu*mu)));
+    periAU = a*(1-e); apoAU = a*(1+e);
+  } else {
+    vInf = Math.sqrt(Math.max(0, v2 - 2*mu/rm));
+  }
+  return {escape, periAU, apoAU, vInf, a, e};
+}
+
+/* ---------- 解析开普勒传播（日心段精确解） ----------
+   旧版用 Verlet 数值积分：火星附近步长约 6.7 天，单步相对位移可达 150 万 km，
+   抵达点定位误差百万 km 量级；目标函数带噪声，发射窗口求解等于在追噪声。
+   改用解析解后单次求值几十微秒，函数完全光滑，窗口求解才能真正收敛。
+   单位：AU / 年。 */
+function kepBasis(r0, v0, mu){
+  const rm = Math.hypot(r0[0], r0[1], r0[2]);
+  const v2 = v0[0]*v0[0] + v0[1]*v0[1] + v0[2]*v0[2];
+  const h = [r0[1]*v0[2]-r0[2]*v0[1], r0[2]*v0[0]-r0[0]*v0[2], r0[0]*v0[1]-r0[1]*v0[0]];
+  const hm = Math.hypot(h[0], h[1], h[2]);
+  const vxh = [v0[1]*h[2]-v0[2]*h[1], v0[2]*h[0]-v0[0]*h[2], v0[0]*h[1]-v0[1]*h[0]];
+  const eh = [vxh[0]/mu - r0[0]/rm, vxh[1]/mu - r0[1]/rm, vxh[2]/mu - r0[2]/rm];
+  const em = Math.hypot(eh[0], eh[1], eh[2]);
+  const a = 1/(2/rm - v2/mu);
+  const Phat = em > 1e-12 ? [eh[0]/em, eh[1]/em, eh[2]/em] : [r0[0]/rm, r0[1]/rm, r0[2]/rm];
+  const hhat = [h[0]/hm, h[1]/hm, h[2]/hm];
+  const Qhat = [hhat[1]*Phat[2]-hhat[2]*Phat[1], hhat[2]*Phat[0]-hhat[0]*Phat[2], hhat[0]*Phat[1]-hhat[1]*Phat[0]];
+  const K = {a:a, em:em, mu:mu, h:h, hm:hm, Phat:Phat, Qhat:Qhat, hhat:hhat, ah:-a};
+  if(a > 0){                                   // 椭圆：偏近点角 E
+    const cosE = em > 1e-12 ? (1 - rm/a)/em : 1;
+    const sinE = em > 1e-12 ? (r0[0]*v0[0]+r0[1]*v0[1]+r0[2]*v0[2])/(em*Math.sqrt(mu*a)) : 0;
+    K.E0 = Math.atan2(sinE, cosE);
+    K.M0 = K.E0 - em*Math.sin(K.E0);
+    K.n  = Math.sqrt(mu/(a*a*a));
+    K.period = 2*Math.PI/K.n;
+    K.hyp = false;
+  } else {                                     // 双曲线：双曲近点角 H
+    const ah = -a;
+    const sinhH = (r0[0]*v0[0]+r0[1]*v0[1]+r0[2]*v0[2])/(em*Math.sqrt(mu*ah));
+    K.H0 = Math.asinh(sinhH);
+    K.M0 = em*Math.sinh(K.H0) - K.H0;
+    K.n  = Math.sqrt(mu/(ah*ah*ah));
+    K.hyp = true;
+  }
+  return K;
+}
+// 由开普勒根数传播 dt 年，返回日心位置与日心距
+function kepProp(K, dt){
+  let M = K.M0 + K.n*dt, X, Y, r, Xd, Yd;
+  if(!K.hyp){
+    M = ((M % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+    let E = M + K.em*Math.sin(M);              // 比 E=M 更好的初值 → 收敛快
+    for(let i=0;i<14;i++){
+      const f = E - K.em*Math.sin(E) - M, fp = 1 - K.em*Math.cos(E);
+      const dE = f/fp; E -= dE;
+      if(Math.abs(dE) < 1e-13) break;
+    }
+    const cE = Math.cos(E), sE = Math.sin(E);
+    const b = K.a*Math.sqrt(Math.max(0, 1 - K.em*K.em));
+    X = K.a*(cE - K.em); Y = b*sE; r = K.a*(1 - K.em*cE);
+    const Edot = K.n/(1 - K.em*cE);
+    Xd = -K.a*sE*Edot; Yd = b*cE*Edot;
+  } else {
+    let H = Math.asinh(M/Math.max(K.em, 1e-9));
+    for(let i=0;i<24;i++){
+      const f = K.em*Math.sinh(H) - H - M, fp = K.em*Math.cosh(H) - 1;
+      const dH = f/fp; H -= dH;
+      if(Math.abs(dH) < 1e-13) break;
+    }
+    const cH = Math.cosh(H), sH = Math.sinh(H);
+    const b = K.ah*Math.sqrt(Math.max(0, K.em*K.em - 1));
+    X = K.ah*(K.em - cH); Y = b*sH; r = K.ah*(K.em*cH - 1);
+    const Hdot = K.n/(K.em*cH - 1);
+    Xd = -K.ah*sH*Hdot; Yd = b*cH*Hdot;
+  }
+  return {pos:[X*K.Phat[0]+Y*K.Qhat[0], X*K.Phat[1]+Y*K.Qhat[1], X*K.Phat[2]+Y*K.Qhat[2]],
+          vel:[Xd*K.Phat[0]+Yd*K.Qhat[0], Xd*K.Phat[1]+Yd*K.Qhat[1], Xd*K.Phat[2]+Yd*K.Qhat[2]],
+          r:r};
+}
+// 从日心状态 (r0,v0) 出发做速度 Verlet（辛积分）。
+// 无 probe：束缚轨道走到远日点即停（霍曼转移抵达目标轨道）；逃逸轨道走到 30 AU 停止。
+// 有 probe(r,t)→到目标距离：继续积分越过远日点，记录与目标的最近点（真正的「抵达点」），
+//   距离开始回升即停。返回 {pts, best:{d,t,idx}, escape, periAU, apoAU, vInf, ...}
+function heliocentricLeg(r0, v0, mu, opts){
+  const o = opts || {};
+  const t0 = o.t0 || 0;
+  const probe = o.probe || null;
+  const el = orbitalElements(r0, v0, mu);
+  const isEsc = el.escape;
+  const apoAU = el.apoAU;
+  const K = kepBasis(r0, v0, mu);
+  const pts = [];
+  const pushPt = (tt)=>{ const P = kepProp(K, tt - t0); pts.push({x:P.pos[0], y:P.pos[1], z:P.pos[2], t:tt}); };
+  let best = null, tEnd = t0;
+  pushPt(t0);
+  if(probe){
+    // 与目标的最近点：沿轨道按时间均匀采样找局部极小，再用黄金分割精修
+    const span = isEsc ? 3.0 : Math.min(K.period*1.02, 1.5);    // 年
+    const N = 240;
+    const ds = new Float64Array(N+1);
+    for(let i=0;i<=N;i++){
+      const tt = span*i/N;
+      const P = kepProp(K, tt);
+      ds[i] = probe(P.pos, t0 + tt);
+    }
+    let bi = 0, bd = Infinity;
+    for(let i=1;i<N;i++){                                     // 首次局部极小 = 第一次交会
+      if(ds[i] <= ds[i-1] && ds[i] < ds[i+1]){ bi = i; bd = ds[i]; break; }
+    }
+    if(bd === Infinity){                                       // 无极小 → 取全局最小
+      for(let i=0;i<=N;i++) if(ds[i] < bd){ bd = ds[i]; bi = i; }
+    }
+    const f = (tt)=>{ const P = kepProp(K, tt); return probe(P.pos, t0 + tt); };
+    let a = span*Math.max(0, bi-1)/N, b = span*Math.min(N, bi+1)/N;
+    const gr = (Math.sqrt(5)-1)/2;
+    let c = b - gr*(b-a), d = a + gr*(b-a), fc = f(c), fd = f(d);
+    for(let i=0;i<30 && (b-a) > 1e-7; i++){
+      if(fc < fd){ b = d; d = c; fd = fc; c = b - gr*(b-a); fc = f(c); }
+      else { a = c; c = d; fc = fd; d = a + gr*(b-a); fd = f(d); }
+    }
+    const tBest = (a+b)/2;
+    best = {d: f(tBest), t: t0 + tBest};
+    tEnd = best.t;
+    pts.length = 0;
+    const M = Math.max(24, Math.min(420, Math.round((tEnd - t0)/span*240)));
+    for(let i=0;i<=M;i++) pushPt(t0 + (tEnd-t0)*i/M);
+    best.idx = pts.length-1;
+  } else {
+    // 无目标：束缚轨道画到远日点；逃逸轨道画到 30 AU（明显离开太阳系）
+    let tStop;
+    if(isEsc){
+      const RMAX = 30, ah = K.ah;
+      const Ht = Math.acosh(Math.max(1, (RMAX/ah + 1)/K.em));
+      const Mt = K.em*Math.sinh(Ht) - Ht;
+      tStop = t0 + Math.min(8, Math.max(0.01, (Mt - K.M0)/K.n));
+    } else {
+      let Mm = K.M0 % (2*Math.PI); if(Mm < 0) Mm += 2*Math.PI;
+      const dM = (Math.PI - Mm + 2*Math.PI) % (2*Math.PI);
+      tStop = t0 + dM/K.n;
+    }
+    tEnd = tStop;
+    const M = Math.max(24, Math.min(600, Math.round((tEnd-t0)/0.01)));
+    for(let i=0;i<=M;i++) pushPt(t0 + (tEnd-t0)*i/M);
+  }
+  const lastP = pts[pts.length-1];
+  return {pts, escape:isEsc, periAU:el.periAU, apoAU:el.apoAU, vInf:el.vInf,
+          endPos:[lastP.x, lastP.y, lastP.z], tEnd:tEnd, best:best};
+}
+
 /**
  * 三段式轨迹预计算（纯函数）
  * @param {object} p
@@ -632,6 +1088,21 @@ function buildCaptureOrbit(muAU, r0AU, vFrac, rHat3, nOrbits, t0){
  */
 function computeTrajectory(p){
   const out = { ascent:[], coastG:[], coastH:[], coastMoon:[], coastMars:[], events:[] };
+  // 轨迹基准时刻（儒略世纪）：决定地球的初始日心状态与「地心局部标架」的朝向
+  const epochT = (p.epochT === undefined || p.epochT === null) ? dateToT(new Date()) : p.epochT;
+  out.epochT = epochT;
+  // 局部标架：x̂=背离太阳的径向（发射点天顶）、ẑ=顺行切向、ŷ=−轨道法向
+  // 场景中地心段坐标 (rx,ry,rz) 即以该标架为基准
+  const frame = earthLocalFrame(epochT);
+  out.frameM = frame.M;
+  // 地心段坐标 → 世界系：地球在飞行期间仍绕日公转，必须逐点用该时刻的真实地球位置
+  const liftToWorld = (arr)=>{
+    for(const q of arr){
+      const E = bodyWorldAt('Earth', epochT + q.t/100);
+      const w = matVec(frame.M, [q.x, q.y, q.z]);
+      q.wx = E[0]+w[0]; q.wy = E[1]+w[1]; q.wz = E[2]+w[2];
+    }
+  };
   const g_surf = MU_EARTH_AU/R_EARTH_AU**2;
   const burnAyr2 = p.gLoad * g_surf;
   const burnYrs = p.burnMinutes * 60 / (365.25*86400);
@@ -707,6 +1178,7 @@ function computeTrajectory(p){
     if(r <= R_EARTH_AU){ crashed = true; out.events.push({type:'crash', t, msg:'坠毁'}); break; }
     out.ascent.push({x:rx, y:ry, z:rz, vx, vy, vz, t});
   }
+  liftToWorld(out.ascent);
   if(crashed){ out.burnVel = auPerYrToKmPerSec(Math.sqrt(vx*vx+vy*vy+vz*vz));
     out.orbitType = 'crash'; return out; }
   const vBurn = Math.sqrt(vx*vx+vy*vy+vz*vz);
@@ -772,105 +1244,1079 @@ function computeTrajectory(p){
     T_coast += dtStep;
     coastSteps++;
     const rN = Math.sqrt(coastR[0]**2+coastR[1]**2+coastR[2]**2);
-    out.coastG.push({x:coastR[0], y:coastR[1], z:coastR[2], t:T_coast});
+    out.coastG.push({x:coastR[0], y:coastR[1], z:coastR[2], vx:coastV[0], vy:coastV[1], vz:coastV[2], t:T_coast});
     if(rN < R_EARTH_AU - 5*R2AU){ reentered = true; out.events.push({type:'reentry', t:T_coast, msg:'重返大气'}); break; }
     if(canEscape && rN > SOI_EARTH_AU){ escaped = true; out.events.push({type:'escape_soi', t:T_coast, msg:'飞出地球引力圈'}); break; }
   }
+  liftToWorld(out.coastG);
   if(reentered){ out.orbitType='reentry'; return out; }
-  if(escaped){
+  // 地心脱离状态（地心动力学与日期无关 → 发射窗口搜索可复用）
+  out.exitLocal = {r: coastR.slice(), v: coastV.slice(), t: T_coast};
+  out.escapedSOI = escaped;
+  if(escaped && !p.noHeliocentric){
     out.orbitType='escape_soi';
     // === 日心段：SOI 边界起，用太阳引力积分 ===
-    // 假设地球在 SOI 边界时刻的日心位置 ≈ [1, 0, 0] AU（圆轨道近似）
-    // 地球公转速度切向 ≈ [0, 0, 2π] AU/yr
-    const EARTH_HC_POS = [1, 0, 0];
-    const EARTH_HC_VEL = [0, 0, 2*Math.PI];
-    // coastG 末点 coastR/coastV 是相对地球的
-    let hcR = [EARTH_HC_POS[0]+coastR[0], EARTH_HC_POS[1]+coastR[1], EARTH_HC_POS[2]+coastR[2]];
-    let hcV = [EARTH_HC_VEL[0]+coastV[0], EARTH_HC_VEL[1]+coastV[1], EARTH_HC_VEL[2]+coastV[2]];
-    let hcT = T_coast;
-    // 日心轨道要素：用 SOI 边界的「精确日心速度」算，勿用轨迹差分（前几步步长大、差分误差大，曾把远日点算错约3%）
-    const hcR0 = Math.sqrt(hcR[0]*hcR[0]+hcR[1]*hcR[1]+hcR[2]*hcR[2]);
-    const hcV20 = hcV[0]*hcV[0]+hcV[1]*hcV[1]+hcV[2]*hcV[2];
-    const hcE0 = hcV20/2 - MU_SUN_AU/hcR0;
-    const hcIsEscape = hcE0 >= 0;
-    out.hcEscape = hcIsEscape;
-    let hcApoTarget = Infinity; // 转移椭圆远日点（抵达即停）；逃逸双曲线走 ri>30
-    if(!hcIsEscape){
-      const ha = -MU_SUN_AU/(2*hcE0);
-      const hhx = hcR[1]*hcV[2]-hcR[2]*hcV[1], hhy = hcR[2]*hcV[0]-hcR[0]*hcV[2], hhz = hcR[0]*hcV[1]-hcR[1]*hcV[0];
-      const hh2 = hhx*hhx+hhy*hhy+hhz*hhz;
-      const he = Math.sqrt(Math.max(0, 1 + 2*hcE0*hh2/(MU_SUN_AU*MU_SUN_AU)));
-      out.hcPeriAU = ha*(1-he);
-      out.hcApoAU = ha*(1+he);
-      hcApoTarget = out.hcApoAU;
-    } else {
-      out.hcVInf = Math.sqrt(Math.max(0, hcV20 - 2*MU_SUN_AU/hcR0));
-    }
-    const hcMax = 1500;
-    // 把 SOI 边界点作为 coastH 起点（日心坐标）
-    out.coastH.push({x:hcR[0], y:hcR[1], z:hcR[2], t:hcT});
-    for(let i=0;i<hcMax;i++){
-      const [x0,y0,z0] = hcR, [vx0,vy0,vz0] = hcV;
-      const r2i = x0*x0+y0*y0+z0*z0; const ri = Math.sqrt(r2i);
-      if(hcIsEscape && ri > 30) break; // 逃逸：飞出 30 AU 已明显离开太阳系，停止
-      // 自适应步长：随日心距按开普勒规律缩放（步长∝r^1.5），近日点自动加密
-      const hcDt = Math.min(0.02, Math.max(0.0002, 0.01*Math.pow(ri,1.5)));
-      // 速度 Verlet（辛积分）：能量长期不漂移，杜绝多圈后螺旋坠向太阳
-      const ax1 = -MU_SUN_AU*x0/(r2i*ri), ay1 = -MU_SUN_AU*y0/(r2i*ri), az1 = -MU_SUN_AU*z0/(r2i*ri);
-      hcR = [
-        x0 + (vx0 + ax1*hcDt/2)*hcDt,
-        y0 + (vy0 + ay1*hcDt/2)*hcDt,
-        z0 + (vz0 + az1*hcDt/2)*hcDt
-      ];
-      const r2n = hcR[0]**2+hcR[1]**2+hcR[2]**2; const rn = Math.sqrt(r2n);
-      hcV = [
-        vx0 + (ax1 - MU_SUN_AU*hcR[0]/(r2n*rn))*hcDt/2,
-        vy0 + (ay1 - MU_SUN_AU*hcR[1]/(r2n*rn))*hcDt/2,
-        vz0 + (az1 - MU_SUN_AU*hcR[2]/(r2n*rn))*hcDt/2
-      ];
-      hcT += hcDt;
-      out.coastH.push({x:hcR[0], y:hcR[1], z:hcR[2], t:hcT});
-      if(!hcIsEscape){
-        // 转移椭圆：抵达远日点（目标轨道）即停——「去火星」到此即为到达火星轨道
-        if(rn >= hcApoTarget * 0.999) break;
+    // 起点必须是「SOI 脱离时刻」的真实地球日心状态 + 旋转到世界系的地心相对速度。
+    // 旧版硬编码 [1,0,0]/[0,0,2π]（圆轨道近似），与画面中按 JPL 星历绘制的地球
+    // 相差可达 0.12 AU（1800 万 km），转移段起点与画面中的地球对不上。
+    const T_exit = epochT + T_coast/100;             // SOI 脱离时刻（儒略世纪）
+    const earthExit = bodyStateAt('Earth', T_exit);
+    const relW  = matVec(frame.M, coastR);           // 地心位置 → 世界系（标架在发射时刻固定）
+    const relVW = matVec(frame.M, coastV);           // 地心速度 → 世界系
+    let hcR = [earthExit.pos[0]+relW[0], earthExit.pos[1]+relW[1], earthExit.pos[2]+relW[2]];
+    let hcV = [earthExit.vel[0]+relVW[0], earthExit.vel[1]+relVW[1], earthExit.vel[2]+relVW[2]];
+    // 地心脱离状态（地心动力学与日期无关 → 可复用于发射窗口搜索）
+    out.exitEpochT = T_exit;
+    // 「去火星」：真实交会 —— 面内黄经对齐 + 深空机动修正轨道面，轨迹终点 = 真正的交会点
+    if(p.target === 'mars'){
+      const ex = { r: coastR.slice(), v: coastV.slice(), t: T_coast };
+      const rv = marsRendezvous(epochT, ex);
+      if(rv){
+        const el2 = orbitalElements(hcR, rv.vUsed, MU_SUN_AU);
+        out.hcEscape = el2.escape;
+        out.hcPeriAU = el2.periAU;
+        out.hcApoAU  = el2.apoAU;
+        out.hcVInf   = el2.vInf;
+        out.tcmDvKmS = rv.dvKmS;                       // 深空机动（轨道面修正）Δv
+        const K2 = kepBasis(hcR, rv.vUsed, MU_SUN_AU);
+        const pts = [];
+        const M = 240;
+        for(let i=0;i<=M;i++){
+          const tt = T_coast + (rv.t - T_coast)*i/M;
+          const P = kepProp(K2, tt - T_coast);
+          pts.push({x:P.pos[0], y:P.pos[1], z:P.pos[2], t:tt});
+        }
+        out.coastH = pts;
+        const mv = rv.miss;
+        out.marsMissKm = rv.missKm;
+        out.marsMissVec = mv;
+        out.marsInPlaneKm = rv.inPlaneKm;
+        out.marsOutPlaneKm = rv.outPlaneKm;
+        out.marsArriveT = rv.t;                       // 抵达时刻（年，自发射起）
+        out.marsArriveEpochT = epochT + rv.t/100;     // 抵达时刻（儒略世纪）
+        out.marsOk = out.marsMissKm <= MARS_SOI_KM;   // 是否进入火星引力圈（可被捕获）
+        if(out.marsOk){
+          // 入轨制动：捕获轨道远点方向 = 抵达点相对火星中心的偏差方向 → 与转移轨迹严格连续
+          const ml = Math.hypot(mv[0],mv[1],mv[2]);
+          let rHatM;
+          if(ml > 1e-9){ rHatM = [mv[0]/ml, mv[1]/ml, mv[2]/ml]; }
+          else {                                       // 几乎完全重合 → 用接近方向定朝向
+            const kv = kepProp(kepBasis(hcR, rv.vUsed, MU_SUN_AU), rv.t - T_coast);
+            const mvv = bodyStateAt('Mars', epochT + rv.t/100).vel;
+            const dv2 = [ kv.vel[0]-mvv[0], kv.vel[1]-mvv[1], kv.vel[2]-mvv[2] ];
+            const dn = Math.max(1e-12, Math.hypot(dv2[0],dv2[1],dv2[2]));
+            rHatM = [-dv2[0]/dn, -dv2[1]/dn, -dv2[2]/dn];
+          }
+          const cap = buildCaptureOrbit(MU_MARS_AU, Math.max(ml, 20000*R2AU), 0.85, rHatM, 2, rv.t);
+          out.coastMars = cap.pts;
+          out.capturePeriodDays = cap.periodYr*365.25;
+          out.capturePeriKm = cap.a*(1-cap.e)*KM_PER_AU;  // 近火点高度(km)，供显示
+          out.orbitType = 'mars_capture';
+        } else {
+          out.orbitType = 'mars_miss';                  // 未在发射窗口内：只走到转移轨道抵达点
+        }
+      } else {
+        const hc = heliocentricLeg(hcR, hcV, MU_SUN_AU, {t0: T_coast});
+        out.hcEscape = hc.escape; out.hcPeriAU = hc.periAU;
+        out.hcApoAU = hc.apoAU;  out.hcVInf  = hc.vInf;
+        out.coastH = hc.pts;
+        out.orbitType = 'mars_miss';
       }
-    }
-    // === 去火星：日心转移抵达远日点(火星轨道)后，进入火星引力圈「入轨制动」环绕火星 ===
-    if(p.target === 'mars' && !hcIsEscape){
-      const lastH = out.coastH[out.coastH.length-1];
-      let rh = Math.sqrt(lastH.x*lastH.x + lastH.y*lastH.y + lastH.z*lastH.z);
-      rh = Math.max(rh, 1e-12);
-      const rHatH = [lastH.x/rh, lastH.y/rh, lastH.z/rh];
-      const cap = buildCaptureOrbit(MU_MARS_AU, 30000*R2AU, 0.85, rHatH, 2, lastH.t);
-      out.coastMars = cap.pts;
-      out.capturePeriodDays = cap.periodYr*365.25;
-      out.capturePeriKm = cap.a*(1-cap.e)*KM_PER_AU;  // 近火点高度(km)，供显示
-      out.orbitType = 'mars_capture';
-      out.marsHelioPos = [lastH.x, lastH.y, lastH.z]; // 火星应处的日心位置（=转移远日点），供渲染对齐
+} else if(p.target === 'ga'){
+      // === 引力弹弓：严格 patched-conic（外行星加速 / 内行星减速） ===
+      const GKP = (p.ga && p.ga.planet) ? p.ga.planet : 'jupiter';
+      const GK  = GA_PLANETS[GKP];
+      const inner = !!(p.ga && p.ga.inner);
+      //   日心段飞到木星引力圈边缘 → 在那里建立行星中心双曲线 → 掠过后叠回木星公转速度
+      const ex = { r: coastR.slice(), v: coastV.slice(), t: T_coast };
+      const enc = gaEncounter(GKP, epochT, ex, p.dvOut || 0, inner);
+      if(enc){
+        const af = gaAfterFlyby(enc);
+        const pts = [];
+        // ① 日心段：地球引力圈脱离 → 木星引力圈入口
+        const M1 = 200;
+        for(let i=0;i<=M1;i++){
+          const tt = ex.t + (enc.en.t - ex.t)*i/M1;
+          const Q = kepProp(enc.K, tt - ex.t);
+          pts.push({x:Q.pos[0], y:Q.pos[1], z:Q.pos[2], t:tt});
+        }
+        // ② 行星中心段：引力圈入口 → 近心点 → 引力圈出口
+        //    用双曲近点角 H 等距采样 → 近心点处（急转弯）自动加密
+        const Kp = enc.pc.K;
+        const MEnd = Kp.M0 + Kp.n*af.dtExit;
+        let Hout = Math.asinh(Math.max(-1, MEnd/Kp.em));
+        for(let it=0; it<30; it++){
+          const f = Kp.em*Math.sinh(Hout) - Hout - MEnd;
+          Hout -= f/(Kp.em*Math.cosh(Hout) - 1);
+        }
+        const M2 = 180;
+        for(let i=1;i<=M2;i++){
+          const H = Kp.H0 + (Hout - Kp.H0)*i/M2;
+          const dM = (Kp.em*Math.sinh(H) - H) - Kp.M0;
+          const dt = dM/Kp.n;
+          const rel = kepProp(Kp, dt);
+          const pl = bodyStateFast(GK.key, epochT + (enc.en.t+dt)/100);
+          pts.push({x:pl.pos[0]+rel.pos[0], y:pl.pos[1]+rel.pos[1], z:pl.pos[2]+rel.pos[2], t:enc.en.t+dt});
+        }
+        // ③ 借力后日心段
+        const K3 = kepBasis(af.pos, af.vel, MU_SUN_AU);
+        let tEnd3;
+        if(af.el.escape){
+          const Ht = Math.acosh(Math.max(1,(30/K3.ah+1)/K3.em));
+          tEnd3 = af.tExit + Math.min(8, Math.max(0.01, ((K3.em*Math.sinh(Ht)-Ht) - K3.M0)/K3.n));
+        } else {
+          let Mm = K3.M0 % (2*Math.PI); if(Mm<0) Mm += 2*Math.PI;
+          tEnd3 = af.tExit + ((Math.PI - Mm + 2*Math.PI) % (2*Math.PI))/K3.n;
+        }
+        const M3 = 200;
+        for(let i=1;i<=M3;i++){
+          const tt = af.tExit + (tEnd3-af.tExit)*i/M3;
+          const Q = kepProp(K3, tt - af.tExit);
+          pts.push({x:Q.pos[0], y:Q.pos[1], z:Q.pos[2], t:tt});
+        }
+        out.coastH = pts;
+        out.hcEscape = af.el.escape;
+        out.hcPeriAU = af.el.periAU;
+        out.hcApoAU  = af.el.apoAU;
+        out.hcVInf   = af.el.vInf;
+        out.gaDvKmS  = p.dvOut || 0;
+        const spd = (v)=>auPerYrToKmPerSec(Math.hypot(v[0],v[1],v[2]));
+        out.gaInfo = {
+          cn: GK.cn, planet: GK.key, inner: inner,
+          arriveDays: enc.periDays, soiEntryDays: enc.flightDays,
+          periKm: enc.pc.rp*KM_PER_AU,
+          periAltKm: enc.pc.rp*KM_PER_AU - enc.planet.R*KM_PER_AU,
+          ecc: enc.pc.e,
+          vInfKmS: auPerYrToKmPerSec(enc.pc.vInf),
+          deltaDeg: enc.pc.delta*180/Math.PI,
+          speedBefore: spd(enc.vBefore), speedAfter: spd(af.vel),
+          apoBefore: enc.el.apoAU, apoAfter: af.el.apoAU,
+          gain: enc.C4 < 0,
+          endAU: af.el.escape ? 30 : af.el.apoAU,
+          escape: af.el.escape
+        };
+        out.orbitType = af.el.escape ? 'ga_escape' : 'ga_flyby';
+      } else {
+        const hc = heliocentricLeg(hcR, hcV, MU_SUN_AU, {t0: T_coast});
+        out.hcEscape = hc.escape; out.hcPeriAU = hc.periAU;
+        out.hcApoAU = hc.apoAU;  out.hcVInf  = hc.vInf;
+        out.coastH = hc.pts;
+        out.orbitType = 'ga_miss';
+      }
+    } else {
+      const hc = heliocentricLeg(hcR, hcV, MU_SUN_AU, {t0: T_coast});
+      out.hcEscape = hc.escape;
+      out.hcPeriAU = hc.periAU;
+      out.hcApoAU  = hc.apoAU;
+      out.hcVInf   = hc.vInf;
+      out.coastH = hc.pts;
     }
     out.events.push({type:'coast_h', msg:'日心段轨迹已计算'});
     // （日心轨道要素已在进入日心段前用精确速度算好，见 out.hcEscape / hcPeriAU / hcApoAU / hcVInf）
   }
 
-  // === 去月球：抵达远地点后，进入月球引力圈「入轨制动」环绕月球 ===
-  if(p.target === 'moon' && !reentered && !escaped){
+  // === 去月球：抵达远地点后，与「那一刻月球的真实位置」比对 → 交会是否成立 ===
+  if(p.target === 'moon' && !reentered && !escaped && out.coastG.length){
     const lastG = out.coastG[out.coastG.length-1];
-    let rg = Math.sqrt(lastG.x*lastG.x + lastG.y*lastG.y + lastG.z*lastG.z);
-    rg = Math.max(rg, 1e-12);
-    const rHatG = [lastG.x/rg, lastG.y/rg, lastG.z/rg];
-    // 远地点超出月球轨道的距离即入轨半径（约 1.2 万 km，位于月球 SOI 内侧）
-    const r0Km = Math.max(6000, Math.min(30000, (rg - MOONS.Moon.a)*KM_PER_AU));
-    const cap = buildCaptureOrbit(MU_MOON_AU, r0Km*R2AU, 0.85, rHatG, 2, lastG.t);
-    out.coastMoon = cap.pts;
-    out.capturePeriodDays = cap.periodYr*365.25;
-    out.capturePeriKm = cap.a*(1-cap.e)*KM_PER_AU;
-    out.orbitType = 'moon_capture';
-    out.moonPhaseAngle = Math.atan2(rHatG[2], rHatG[0]); // 月球应处的位相角（x-z 平面），供渲染对齐
+    // 弹道远地点（地心局部系）→ 世界系偏移
+    const apW = matVec(frame.M, [lastG.x, lastG.y, lastG.z]);
+    const T_arr = epochT + lastG.t/100;
+    const dayT = (tCenturiesToMs(epochT) + lastG.t*365.25*86400000)/86400000;
+    const mOff = moonOffsetAU(dayT);   // 月球相对地球的偏移（真实星历）
+    const dv = [apW[0]-mOff[0], apW[1]-mOff[1], apW[2]-mOff[2]];
+    out.moonMissKm = Math.hypot(dv[0],dv[1],dv[2])*KM_PER_AU;
+    out.moonMissVec = dv;
+    out.moonArriveT = lastG.t;
+    out.moonOk = out.moonMissKm <= MOON_SOI_KM;                 // 是否进入月球引力圈（可被捕获）
+    out.apogeeLocal = [lastG.x, lastG.y, lastG.z];
+    out.apogeeT = lastG.t;
+    if(out.moonOk){
+      // 入轨制动：捕获轨道远点方向 = 抵达点相对月球的偏差方向 → 与转移轨迹严格连续
+      const dl = Math.max(1e-12, Math.hypot(dv[0],dv[1],dv[2]));
+      const rHatL = [dv[0]/dl, dv[1]/dl, dv[2]/dl];
+      const cap = buildCaptureOrbit(MU_MOON_AU, Math.max(dl, 6000*R2AU), 0.85, rHatL, 2, lastG.t);
+      out.coastMoon = cap.pts;
+      out.capturePeriodDays = cap.periodYr*365.25;
+      out.capturePeriKm = cap.a*(1-cap.e)*KM_PER_AU;
+      out.orbitType = 'moon_capture';
+    } else {
+      out.orbitType = 'moon_miss';
+    }
   }
 
   return out;
 }
 
+/* ---------- 发射窗口搜索 ---------- */
+const MARS_MEAN_R = 1.5237;                        // 火星平均日心距 (AU)
+const MARS_N      = 0.5240*Math.PI/180*365.25;     // 火星平均角速度 (rad/yr)
+// 角度归一到 (−π, π]
+function wrapPi(x){
+  x = ((x + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI;
+  return x;
+}
+// 转移轨道远日点信息（解析，无需积分）
+//   远日点方向 = −P̂；远日点时刻 = 平均近点角从当前值推进到 π
+function kepApoInfo(K, t0){
+  let Mm = K.M0 % (2*Math.PI); if(Mm < 0) Mm += 2*Math.PI;
+  const dMapo = (Math.PI - Mm + 2*Math.PI) % (2*Math.PI);
+  return { tApo: t0 + dMapo/K.n,
+           lamApo: Math.atan2(K.Phat[2], -K.Phat[0]),
+           rApo: K.a*(1+K.em) };
+}
+// 转移轨道近心点信息（解析）
+function kepPeriInfo(K, t0){
+  let Mm = K.M0 % (2*Math.PI); if(Mm < 0) Mm += 2*Math.PI;
+  const dMper = (2*Math.PI - Mm) % (2*Math.PI);
+  return { tPeri: t0 + dMper/K.n,
+           lamPeri: Math.atan2(K.Phat[2], K.Phat[0]),
+           rPeri: K.a*(1-K.em) };
+}
+// 主动段结束时相对地球的逃逸余速（AU/yr）。geocentricExitState 已按 (推力,时长,方位角) 缓存。
+function vInfForBurn(L, gLoad, b, azimuth){
+  const ex = geocentricExitState(gLoad, b, azimuth);
+  if(!ex) return null;
+  const rEsc = Math.hypot(ex.r[0], ex.r[1], ex.r[2]);
+  const vEsc2 = ex.v[0]*ex.v[0] + ex.v[1]*ex.v[1] + ex.v[2]*ex.v[2];
+  return Math.sqrt(Math.max(0, vEsc2 - 2*MU_EARTH_AU/rEsc));
+}
+// 内行星（Venus/Mercury）转移：注入速度低于地球轨道速度 → 地球在远日点、目标在近心点。
+// 目标近心点 r_p 已知 → 反解需要的日心出发速度 → 反解需要的地球逃逸余速 → 二分主动段时长。
+//   a  = (r0 + r_p)/2 ,  vDep = sqrt(mu(2/r0 - 1/a)) ,  vInf = vTan - vDep
+function vInfTargetForPeri(rp, r0){
+  const a = (r0 + rp)/2;
+  if(a <= 0) return null;
+  const vDep = Math.sqrt(Math.max(0, MU_SUN_AU*(2/r0 - 1/a)));
+  const vTan = Math.sqrt(MU_SUN_AU/r0);
+  return vTan - vDep;                                   // 需要「减掉」的速度
+}
+// 求使转移近心点 = targetPeri 的主动段时长（vInf(b) 单调增 → 二分）
+function burnForPeriapsis(L, gLoad, azimuth, targetPeri){
+  const vT = vInfTargetForPeri(targetPeri, 1.0);
+  if(vT === null) return null;
+  let lo = null, hi = null, prev = null;
+  for(let k=0;k<=2850;k++){
+    const b = 3 + k*0.02;
+    const v = vInfForBurn(L, gLoad, b, azimuth);
+    if(v === null){ prev = null; continue; }
+    if(v >= vT){ hi = b; if(prev !== null) lo = prev; break; }
+    prev = b;
+  }
+  if(hi === null) return null;
+  if(lo === null) lo = Math.max(3, hi - 0.02);
+  for(let i=0;i<34;i++){
+    const mid = (lo+hi)/2, v = vInfForBurn(L, gLoad, mid, azimuth);
+    if(v === null){ hi = mid; continue; }
+    if(v < vT) lo = mid; else hi = mid;
+    if(hi-lo < 1e-4) break;
+  }
+  return (lo+hi)/2;
+}
+// 轨道注入（TLI）设计：日心出发状态
+//   真实任务的做法是：火箭脱离地球后的「逃逸余速」大小由主动段决定，
+//   而余速的「方向」由发射剖面（方位角/倾角）设计成对准目标。
+//   本应用单段式上升只能给出几乎沿径向的逃逸渐近线（顺行分量仅 0.08 km/s），
+//   若直接沿用，转移轨道会变成「大半径内切、扫过 223°」的怪轨道，
+//   算出的窗口与真实地火窗口差好几个月。
+//   故此处按任务设计取：
+//     · 余速大小 = 脱离地球后的实际逃逸余速（由主动段时长决定）
+//     · 日心出发速度 = 纯切向顺行（大小 = 地球切向速度 + 余速）
+//   「纯切向」很关键：地球轨道有径向速度分量，若直接叠加余速，
+//   出发点就不在转移轨道的近地点上，远日点方位会偏 13°～20°，
+//   发射窗口日期会差好几周。
+function marsDepartureState(L, exitLocal, retro){
+  const fr = earthLocalFrame(L);
+  const es = bodyStateAt('Earth', L + exitLocal.t/100);
+  const relW = matVec(fr.M, exitLocal.r);
+  const r0 = [es.pos[0]+relW[0], es.pos[1]+relW[1], es.pos[2]+relW[2]];
+  const rEsc = Math.hypot(exitLocal.r[0], exitLocal.r[1], exitLocal.r[2]);
+  const vEsc2 = exitLocal.v[0]*exitLocal.v[0] + exitLocal.v[1]*exitLocal.v[1] + exitLocal.v[2]*exitLocal.v[2];
+  const vInf = Math.sqrt(Math.max(0, vEsc2 - 2*MU_EARTH_AU/rEsc));   // 逃逸余速
+  const tE = fr.tHat;
+  const vTan = es.vel[0]*tE[0] + es.vel[1]*tE[1] + es.vel[2]*tE[2];    // 地球切向速度
+  const vDep = retro ? (vTan - vInf) : (vTan + vInf);                // 纯切向出发速度（retro=true → 逆行减速注入，用于内行星转移）
+  const v0 = [tE[0]*vDep, tE[1]*vDep, tE[2]*vDep];
+  return {fr:fr, es:es, r0:r0, v0:v0, vInf:vInf, tE:tE, vDep:vDep};
+}
+// 日心转移状态 + 霍曼型抵达的三条残差
+//   F1 面内黄经：远日点与火星同经度
+//   F2 面内半径：远日点半径 = 抵达时火星的日心距
+//   F3 面外偏差：抵达点相对黄道面的高度与火星一致
+// dv = 深空机动沿黄道法向的速度增量 (AU/yr)，用于轨道面修正
+function marsLegState(L, exitLocal, dv){
+  const dp = marsDepartureState(L, exitLocal);
+  const fr = dp.fr;
+  const r0 = dp.r0;
+  const v0 = dp.v0;
+  const v1 = [v0[0]+fr.nHat[0]*dv, v0[1]+fr.nHat[1]*dv, v0[2]+fr.nHat[2]*dv];
+  const el = orbitalElements(r0, v1, MU_SUN_AU);
+  if(el.escape) return null;
+  const K = kepBasis(r0, v1, MU_SUN_AU);
+  const apo = kepApoInfo(K, exitLocal.t);
+  const mp = bodyWorldAt('Mars', L + apo.tApo/100);
+  const P = kepProp(K, apo.tApo - exitLocal.t);
+  const F3 = (P.pos[0]-mp[0])*fr.nHat[0] + (P.pos[1]-mp[1])*fr.nHat[1] + (P.pos[2]-mp[2])*fr.nHat[2];
+  return { r0:r0, v0:v0, v1:v1, K:K, el:el, apo:apo, mars:mp, posApo:P.pos, vInf:dp.vInf,
+           F1: wrapPi(apo.lamApo - Math.atan2(-mp[2], mp[0])),
+           F2: apo.rApo - Math.hypot(mp[0],mp[1],mp[2]),
+           F3: F3 };
+}
+// 转移轨道与火星的最接近点：先解「黄经对齐」时刻，再用黄金分割压到真正的最近点
+function marsClosestApproach(r0, v, L, t0){
+  if(orbitalElements(r0, v, MU_SUN_AU).escape) return null;
+  const K = kepBasis(r0, v, MU_SUN_AU);
+  const marsPos = (tt)=> bodyWorldAt('Mars', L + tt/100);
+  const lamOf = (p)=> Math.atan2(-p[2], p[0]);
+  const apo = kepApoInfo(K, t0);
+  let t = apo.tApo, ok = true;
+  for(let i=0;i<10;i++){
+    const P = kepProp(K, t - t0);
+    const mp = marsPos(t);
+    const f = wrapPi(lamOf(P.pos) - lamOf(mp));
+    const fp = K.hm/(P.r*P.r) - MARS_N;         // dλ_sc/dt − dλ_Mars/dt
+    if(Math.abs(fp) < 1e-9) break;
+    const dt = -f/fp;
+    if(Math.abs(dt) > 0.25){ ok = false; break; }
+    t += dt;
+    if(Math.abs(dt) < 1e-11) break;
+  }
+  const dist = (tt)=>{ const P = kepProp(K, tt - t0); const mp = marsPos(tt);
+                        return Math.hypot(P.pos[0]-mp[0], P.pos[1]-mp[1], P.pos[2]-mp[2]); };
+  let lo, hi;
+  if(ok){ lo = t - 20/365.25; hi = t + 20/365.25; }
+  else {                                        // 兜底：以远日点为中心粗扫找极小
+    const a0 = apo.tApo - 200/365.25, b0 = apo.tApo + 200/365.25, N = 80;
+    let bi = 0, bd = Infinity;
+    for(let i=0;i<=N;i++){ const d = dist(a0 + (b0-a0)*i/N); if(d < bd){ bd = d; bi = i; } }
+    const st = (b0-a0)/N;
+    lo = a0 + st*Math.max(0, bi-1); hi = Math.min(b0, lo + 2*st);
+  }
+  const gr = (Math.sqrt(5)-1)/2;
+  let c = hi - gr*(hi-lo), d = lo + gr*(hi-lo), fc = dist(c), fd = dist(d);
+  for(let i=0;i<34 && (hi-lo) > 1e-9; i++){
+    if(fc < fd){ hi = d; d = c; fd = fc; c = hi - gr*(hi-lo); fc = dist(c); }
+    else { lo = c; c = d; fc = fd; d = lo + gr*(hi-lo); fd = dist(d); }
+  }
+  const tBest = (lo+hi)/2;
+  const P = kepProp(K, tBest - t0);
+  const mp = marsPos(tBest);
+  return { K:K, t:tBest, pos:P.pos, mars:mp, dist:dist(tBest), apo:apo };
+}
+// 给定发射时刻与地心脱离状态 → 与火星的真实交会
+//   ① 面内几何：黄经对齐 + 黄金分割 → 抵达时刻
+//   ② 深空机动 Δv：沿黄道法向修正轨道面（发射模型只能产生面内转移，
+//      而火星轨道面相对黄道倾斜 1.85°，不修正就差 700 万 km）
+function marsRendezvous(L, exitLocal){
+  const s0 = marsLegState(L, exitLocal, 0);
+  if(!s0) return null;
+  const n = earthLocalFrame(L).nHat;
+  let dv = 0, c = null;
+  // 迭代：解面外 Δv → 重算最近点 → 再解面外 Δv（抵达时刻会随修正微移）
+  for(let round=0; round<4; round++){
+    const vv = [s0.v0[0]+n[0]*dv, s0.v0[1]+n[1]*dv, s0.v0[2]+n[2]*dv];
+    const cc = marsClosestApproach(s0.r0, vv, L, exitLocal.t);
+    if(!cc) return null;
+    c = cc;
+    const tArrive = cc.t, target = cc.mars;
+    const resid = (x)=>{
+      const v2 = [s0.v0[0]+n[0]*x, s0.v0[1]+n[1]*x, s0.v0[2]+n[2]*x];
+      const K = kepBasis(s0.r0, v2, MU_SUN_AU);
+      const P = kepProp(K, tArrive - exitLocal.t);
+      return (target[0]-P.pos[0])*n[0] + (target[1]-P.pos[1])*n[1] + (target[2]-P.pos[2])*n[2];
+    };
+    let d0 = dv, d1 = dv + 1e-4, f0 = resid(d0), f1 = resid(d1), dvNew = dv;
+    for(let i=0;i<20;i++){
+      if(Math.abs(f1) < 1e-12) break;
+      const den = f1 - f0;
+      if(Math.abs(den) < 1e-22) break;
+      const d2 = d1 - f1*(d1-d0)/den;
+      d0 = d1; f0 = f1; d1 = d2; f1 = resid(d1); dvNew = d1;
+      if(Math.abs(d1) < 1e-16) break;
+    }
+    if(Math.abs(dvNew - dv) < 1e-13){ dv = dvNew; break; }
+    dv = dvNew;
+  }
+  const vv = [s0.v0[0]+n[0]*dv, s0.v0[1]+n[1]*dv, s0.v0[2]+n[2]*dv];
+  const miss = [c.pos[0]-c.mars[0], c.pos[1]-c.mars[1], c.pos[2]-c.mars[2]];
+  const outP = miss[0]*n[0] + miss[1]*n[1] + miss[2]*n[2];
+  const inP  = Math.hypot(miss[0]-outP*n[0], miss[1]-outP*n[1], miss[2]-outP*n[2]);
+  return { t:c.t, pos:c.pos, mars:c.mars, K:c.K, apo:c.apo,
+           vUsed:vv, dv:dv, dvKmS: auPerYrToKmPerSec(Math.abs(dv)),
+           miss:miss, missKm: c.dist*KM_PER_AU,
+           inPlaneKm: inP*KM_PER_AU, outPlaneKm: outP*KM_PER_AU,
+           apoAU: c.apo.rApo };
+}
+// 兼容旧接口：给定发射时刻与地心脱离状态 → 抵达点与火星真实位置的比对
+function marsArrivalInfo(L, exitLocal){
+  const r = marsRendezvous(L, exitLocal);
+  if(!r) return null;
+  return { last:{x:r.pos[0], y:r.pos[1], z:r.pos[2], t:r.t}, mars:r.mars, mv:r.miss,
+           t:r.t, apoAU:r.apoAU, missKm:r.missKm, dvKmS:r.dvKmS,
+           inPlaneKm:r.inPlaneKm, outPlaneKm:r.outPlaneKm,
+           rArrive: Math.hypot(r.pos[0],r.pos[1],r.pos[2]),
+           rMars: Math.hypot(r.mars[0],r.mars[1],r.mars[2]) };
+}
+function marsRendezvousAt(L, exitLocal){
+  const r = marsArrivalInfo(L, exitLocal);
+  return r ? {missKm:r.missKm, t:r.t} : null;
+}
+// 月球：给定发射时刻 L 与弹道远地点（地心局部系）→ 抵达时刻与月球真实位置的偏差
+function moonRendezvousAt(L, apogeeLocal, apogeeT){
+  const M = earthLocalFrame(L).M;
+  const apW = matVec(M, apogeeLocal);
+  const dayT = (tCenturiesToMs(L) + apogeeT*365.25*86400000)/86400000;
+  const off = moonOffsetAU(dayT);
+  return {missKm: Math.hypot(apW[0]-off[0], apW[1]-off[1], apW[2]-off[2])*KM_PER_AU};
+}
+// 扫描最近发射窗口（粗扫 + 局部细化）。地火会合周期 779.9 天 → 火星窗口约每 2.1 年一次；
+// 月球每 27.3 天就有一次（相位对齐），但窗口宽度只有 ±1 天左右。
+function searchLaunchWindow(kind, baseT, ctx){
+  const coarse = (kind==='mars') ? 2 : 0.25;   // 粗扫步长（天）
+  const span   = (kind==='mars') ? 820 : 70;   // 扫描跨度（天）
+  const fine   = (kind==='mars') ? 0.02 : 0.005;
+  const ev = (L)=> (kind==='mars') ? marsRendezvousAt(L, ctx.exit) : moonRendezvousAt(L, ctx.apogee, ctx.apogeeT);
+  let best = null;
+  for(let d=0; d<=span; d+=coarse){
+    const r = ev(baseT + d/36525);
+    if(r && (!best || r.missKm < best.missKm)) best = {d, missKm:r.missKm};
+  }
+  if(!best) return null;
+  const lo = Math.max(0, best.d - coarse), hi = Math.min(span, best.d + coarse);
+  for(let d=lo; d<=hi; d+=fine){
+    const r = ev(baseT + d/36525);
+    if(r && r.missKm < best.missKm) best = {d, missKm:r.missKm};
+  }
+  return {days: best.d, missKm: best.missKm, T: baseT + best.d/36525};
+}
+
+/* ---------- 火星发射窗口：二维求解（发射日期 + 主动段时长） ---------- */
+// 真实任务中「发射日期」与「逃逸速度 C3」是一起设计的：
+//   日期决定相位（能否与火星相遇），主动段时长决定转移能量（远日点半径）。
+// 先解相位（扫描日期），再解能量（调主动段使远日点 = 抵达时刻火星半径），迭代收敛。
+const _exitCache = new Map();
+function geocentricExitState(gLoad, burnMinutes, azimuth){
+  const key = gLoad+'|'+burnMinutes+'|'+azimuth;
+  if(_exitCache.has(key)) return _exitCache.get(key);
+  const tr = computeTrajectory({gLoad, burnMinutes, azimuth, target:null,
+                                noHeliocentric:true, epochT:dateToT(new Date())});
+  const val = (tr.escapedSOI && tr.exitLocal) ? tr.exitLocal : null;   // 必须真的飞出地球引力圈
+  _exitCache.set(key, val);
+  return val;
+}
+// 二维求解：找 (发射日期 L, 主动段时长 b) 使抵达点与火星真实位置重合。
+// 远日点半径对主动段时长极敏感（1 分钟 ≈ 1 AU），直接搜索会掉进错误的能量盆地；
+// 故先用二分定出「霍曼能量」（远日点 = 火星轨道半径）对应的主动段作为初值，再局部精修。
+function apoForBurn(L, gLoad, b, azimuth){
+  const ex = geocentricExitState(gLoad, b, azimuth);
+  if(!ex) return -1;                                     // 未逃逸地球引力圈 → b 太小
+  const dp = marsDepartureState(L, ex);
+  const el = orbitalElements(dp.r0, dp.v0, MU_SUN_AU);
+  return el.escape ? null : el.apoAU;                     // 双曲线 → b 太大
+}
+// 求使转移远日点 = targetApo 的主动段时长（apoAU(b) 单调增 → 二分）
+function burnForApoapsis(L, gLoad, azimuth, targetApo){
+  let lo = null, hi = null;
+  for(let k=0;k<=228;k++){
+    const b = 3 + k*0.25;
+    const v = apoForBurn(L, gLoad, b, azimuth);
+    if(v === null){ hi = b; break; }   // 已成双曲线 → 远日点无界，视为已超过目标
+    if(v < 0) continue;                // 还没逃逸地球，继续找
+    if(v >= targetApo){ hi = b; break; }
+    lo = b;
+  }
+  if(lo === null || hi === null) return null;
+  for(let i=0;i<24;i++){
+    const mid = (lo+hi)/2, v = apoForBurn(L, gLoad, mid, azimuth);
+    if(v !== null && v < 0) break;
+    const vv = (v === null) ? Infinity : v;
+    if(vv < targetApo) lo = mid; else hi = mid;
+    if(hi-lo < 0.0004) break;
+  }
+  return (lo+hi)/2;
+}
+// 二维求解（发射日期 × 转移能量）：找使抵达点与火星真实位置重合的组合。
+// 真实任务中「发射日期」与「逃逸速度 C3」是一起设计的：
+//   日期决定相位（能否与火星相遇），主动段时长决定转移能量（远日点半径），
+//   深空机动 Δv 决定轨道面能否对准火星。
+// 初值由霍曼几何直接给出（出发相位角 44.3°、会合周期 779.9 天），
+// 再用三维牛顿把三条残差压到零：面内黄经、远日点半径、面外高度。
+function marsPhaseAngle(t){                     // 地火相位角（弧度，火星领先地球为正）
+  const m = bodyWorldAt('Mars', t), e = bodyStateAt('Earth', t);
+  return Math.atan2(-m[2], m[0]) - Math.atan2(-e.pos[2], e.pos[0]);
+}
+function solveMarsWindow(baseT, gLoad, bStart, azimuth){
+  const PHI_H   = 44.34*Math.PI/180;            // 霍曼转移理想出发相位角
+  const SYN     = 779.9/36525;                  // 地火会合周期（儒略世纪）
+  const RATE    = 0.4615*Math.PI/180*36525;      // 相位角递减速率 (rad/儒略世纪)
+  // ① 相位角播种：找到 φ 降到 44.34° 的最近日期
+  const dBase = marsPhaseAngle(baseT);
+  let dd = dBase - PHI_H;
+  dd = ((dd % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+  const phaseRel = (t)=>{                        // 相对 baseT 的连续相位角（单调递减）
+    const d = marsPhaseAngle(t) - dBase;
+    const k = Math.round((-RATE*(t-baseT) - d)/(2*Math.PI));
+    return d + k*2*Math.PI;
+  };
+  const goal = -dd;
+  let lo = baseT, hi = baseT + SYN;
+  for(let i=0;i<60;i++){
+    const mid = (lo+hi)/2;
+    if(phaseRel(mid) - goal > 0) lo = mid; else hi = mid;
+  }
+  const tSeed = (lo+hi)/2;
+  // ② 嵌套标量求解（每层都单调 → 收敛可靠）
+  //    内层 b ：转移远日点半径 = 抵达时火星的日心距（F2 = 0，单调递增）
+  //    内层 dv：深空机动使抵达点面外偏差归零（F3 = 0）
+  //    外层 L ：远日点与火星同经度（F1 = 0，单调递增）
+  let b = burnForApoapsis(tSeed, gLoad, azimuth, MARS_MEAN_R);
+  if(b === null) return null;
+  const inner = (L, bStart)=>{
+    let bb = bStart;
+    let dv = 0;
+    // 内层 1：牛顿解 b（F2 = 0）
+    for(let i=0;i<14;i++){
+      const ex = geocentricExitState(gLoad, bb, azimuth);
+      if(!ex) return null;
+      const S = marsLegState(L, ex, dv);
+      if(!S) return null;
+      if(Math.abs(S.F2) < 1e-10) break;
+      const db = 0.002;
+      const exP = geocentricExitState(gLoad, bb+db, azimuth);
+      const exM = geocentricExitState(gLoad, bb-db, azimuth);
+      if(!exP || !exM) return null;
+      const Sp = marsLegState(L, exP, dv), Sm = marsLegState(L, exM, dv);
+      if(!Sp || !Sm) return null;
+      const df = (Sp.F2 - Sm.F2)/(2*db);
+      if(Math.abs(df) < 1e-10) break;
+      const nb = Math.max(3, Math.min(60, bb - S.F2/df));
+      const conv = Math.abs(nb-bb) < 1e-7;
+      bb = nb;
+      if(conv) break;
+    }
+    // 内层 2：割线法解 dv（F3 = 0）
+    const resid = (x)=>{
+      const ex = geocentricExitState(gLoad, bb, azimuth);
+      if(!ex) return NaN;
+      const S = marsLegState(L, ex, x);
+      return S ? S.F3 : NaN;
+    };
+    let x0 = 0, x1 = 1e-4, f0 = resid(x0), f1 = resid(x1);
+    for(let i=0;i<22;i++){
+      if(!isFinite(f1) || Math.abs(f1) < 1e-13) break;
+      const den = f1 - f0;
+      if(!isFinite(den) || Math.abs(den) < 1e-24) break;
+      const x2 = x1 - f1*(x1-x0)/den;
+      x0 = x1; f0 = f1; x1 = x2; f1 = resid(x1); dv = x1;
+      if(Math.abs(x1) < 1e-16) break;
+    }
+    const ex = geocentricExitState(gLoad, bb, azimuth);
+    if(!ex) return null;
+    const S = marsLegState(L, ex, dv);
+    if(!S) return null;
+    return {b:bb, dv:dv, F1:S.F1, F2:S.F2, F3:S.F3};
+  };
+  let L = tSeed;
+  let cur = inner(L, b);
+  if(!cur) return null;
+  const dL = 0.02/36525;
+  for(let it=0; it<14; it++){
+    if(Math.abs(cur.F1) < 1e-10) break;
+    const up = inner(L+dL, cur.b), dn = inner(L-dL, cur.b);
+    if(!up || !dn) break;
+    const df = (up.F1 - dn.F1)/(2*dL);
+    if(Math.abs(df) < 1e-6) break;
+    const nL = L - cur.F1/df;
+    const nxt = inner(nL, cur.b);
+    if(!nxt) break;
+    if(Math.abs(nxt.F1) >= Math.abs(cur.F1)) break;
+    L = nL; cur = nxt;
+  }
+  b = cur.b;
+  // ③ 精修：直接对「真实交会偏差」做一维黄金分割（发射日期），并同步重解主动段
+  for(let round=0; round<2; round++){
+    const missAt = (x)=>{
+      const e = geocentricExitState(gLoad, b, azimuth);
+      if(!e) return Infinity;
+      const r = marsRendezvous(x, e);
+      return r ? r.missKm : Infinity;
+    };
+    const gr = (Math.sqrt(5)-1)/2;
+    let lo = L - 2/36525, hi = L + 2/36525;
+    let c = hi - gr*(hi-lo), d = lo + gr*(hi-lo), fc = missAt(c), fd = missAt(d);
+    for(let i=0;i<22;i++){
+      if(fc < fd){ hi=d; d=c; fd=fc; c=hi-gr*(hi-lo); fc=missAt(c); }
+      else { lo=c; c=d; fc=fd; d=lo+gr*(hi-lo); fd=missAt(d); }
+    }
+    L = (lo+hi)/2;
+    const cur2 = inner(L, b);
+    if(cur2) b = cur2.b;
+  }
+  // ④ 用最终参数做真实交会核算（面内几何 + 深空机动 → 实际最近距离）
+  const ex = geocentricExitState(gLoad, b, azimuth);
+  if(!ex) return null;
+  const rv = marsRendezvous(L, ex);
+  return {
+    T: L, days: (L-baseT)*36525, burnMinutes: b,
+    dv: cur.dv, missKm: rv ? rv.missKm : Infinity,
+    inPlaneKm: rv ? rv.inPlaneKm : Infinity,
+    outPlaneKm: rv ? rv.outPlaneKm : Infinity,
+    dvKmS: rv ? rv.dvKmS : 0,
+    apoAU: rv ? rv.apoAU : 0,
+    arriveDays: rv ? rv.t*365.25 : 0,
+    phaseDeg: marsPhaseAngle(L)*180/Math.PI
+  };
+}
+
+/* ---------- 引力弹弓（行星借力）：严格 patched-conic ----------
+   真实任务的流程分三段：
+     ① 航天器被太阳引力送到目标行星的引力圈（SOI）边缘；
+     ② 在那里以行星为中心建立双曲线（行星中心 conic），近心点高度决定偏转角 δ；
+     ③ 离开 SOI 时把行星的公转速度叠回航天器的无穷远速度 → 日心速度被改变。
+   能量增益的判据：近心点位于行星的「正后方」（相对行星公转方向）时，
+   行星引力把航天器往前拽 → 日心速度增加；落在前方则减速。
+   实测基准：旅行者1号 1979 年木星借力，最近点 4.9 R_J ≈ 349,000 km，
+   日心速度 12.6 → 23.4 km/s（+10.8 km/s）。 */
+function pcConic(rel, u, mu){
+  const rho = Math.hypot(rel[0],rel[1],rel[2]);
+  const u2  = u[0]*u[0]+u[1]*u[1]+u[2]*u[2];
+  const eps = u2/2 - mu/rho;
+  if(eps <= 0) return {bound:true, eps:eps, rho:rho};     // 被行星束缚 → 不是「掠过」
+  const K = kepBasis(rel, u, mu);
+  const e = K.em, ah = K.ah, rp = ah*(e-1);
+  const vInf  = Math.sqrt(2*eps);
+  const delta = 2*Math.asin(1/e);                          // 双曲线总偏转角
+  const s = Math.sqrt(e*e-1)/e, c = 1/e;
+  // 无穷远出射/入射方向：K.Phat = 近心点方向，K.Qhat = ĥ × P̂
+  const uOut = [-c*K.Phat[0]+s*K.Qhat[0], -c*K.Phat[1]+s*K.Qhat[1], -c*K.Phat[2]+s*K.Qhat[2]];
+  const uIn  = [ c*K.Phat[0]+s*K.Qhat[0],  c*K.Phat[1]+s*K.Qhat[1],  c*K.Phat[2]+s*K.Qhat[2]];
+  const vp = Math.sqrt(2*eps + 2*mu/rp);                  // 近心点速度
+  return {bound:false, eps:eps, rho:rho, e:e, ah:ah, rp:rp, vInf:vInf, delta:delta,
+          uOut:uOut, uIn:uIn, vp:vp, K:K,
+          relP:[rp*K.Phat[0], rp*K.Phat[1], rp*K.Phat[2]],  // 行星中心 → 近心点
+          uP:[vp*K.Qhat[0], vp*K.Qhat[1], vp*K.Qhat[2]],
+          dtPeri:-K.M0/K.n};                               // 当前状态 → 近心点的时间(yr)
+}
+// 遭遇窗口：航天器在转移轨道远日点附近穿过目标轨道 → 以远日点为中心取窗口
+// 内行星：转移轨道近心点附近才是遭遇时刻（地球在远日点、目标在近心点）
+function gaWindowsPeri(K, t0, spanDays, nPeri){
+  const out = [];
+  const peri = kepPeriInfo(K, t0);
+  for(let k=0;k<nPeri;k++){
+    const tp = peri.tPeri + k*K.period;
+    out.push([tp - spanDays/365.25, tp + spanDays/365.25]);
+  }
+  return out;
+}
+// 转移轨道与行星轨迹的最近点（粗扫 + 黄金分割细化）
+function gaClosestApproach(K, tEpoch, pkey, Lcent, windows){
+  const relAt=(t)=>{ const a=kepProp(K,t-tEpoch), b=bodyStateFast(pkey,Lcent+t/100);
+                      return [a.pos[0]-b.pos[0],a.pos[1]-b.pos[1],a.pos[2]-b.pos[2]]; };
+  const distAt=(t)=>{ const r=relAt(t); return Math.hypot(r[0],r[1],r[2]); };
+  let best = null;
+  for(const win of windows){
+    const t0=win[0], t1=win[1], N=240;
+    let bi=0, bd=Infinity;
+    for(let i=0;i<=N;i++){ const t=t0+(t1-t0)*i/N; const v=distAt(t); if(v<bd){ bd=v; bi=i; } }
+    const st=(t1-t0)/N;
+    let lo=t0+st*Math.max(0,bi-1), hi=Math.min(t1,t0+st*(bi+1));
+    const gr=(Math.sqrt(5)-1)/2;
+    let c=hi-gr*(hi-lo), e=lo+gr*(hi-lo), fc=distAt(c), fe=distAt(e);
+    for(let i=0;i<44 && (hi-lo) > 1e-10; i++){
+      if(fc < fe){ hi=e; e=c; fe=fc; c=hi-gr*(hi-lo); fc=distAt(c); }
+      else { lo=c; c=e; fc=fe; e=lo+gr*(hi-lo); fe=distAt(e); }
+    }
+    const t=(lo+hi)/2, d=distAt(t);
+    if(!best || d < best.d) best = {t:t, d:d, rel:relAt(t)};
+  }
+  return best;
+}
+function gaWindows(K, t0, spanDays, nApo, rTarget){
+  const out = [];
+  if(K.hyp){
+    // 双曲线：r 单调增 → 先求与目标轨道半径的交点，再在附近取窗口
+    let prev=t0, hit=null;
+    for(let t=t0+0.01; t<t0+12; t+=0.01){
+      if(kepProp(K,t-t0).r >= rTarget){ hit=t; break; }
+      prev=t;
+    }
+    if(hit === null){
+      out.push([t0, t0 + 3600/365.25]);
+    } else {
+      let lo=prev, hi=hit;
+      for(let k=0;k<40;k++){ const mid=(lo+hi)/2; if(kepProp(K,mid-t0).r < rTarget) lo=mid; else hi=mid; }
+      const tc=(lo+hi)/2;
+      out.push([tc - spanDays/365.25, tc + spanDays/365.25]);
+    }
+  } else {
+    const apo = kepApoInfo(K, t0);
+    for(let k=0;k<nApo;k++){
+      const ta = apo.tApo + k*K.period;
+      out.push([ta - spanDays/365.25, ta + spanDays/365.25]);
+    }
+  }
+  return out;
+}
+// SOI 入口：在遭遇窗口内扫 |r_sc − r_planet|，二分求与引力圈半径的交点
+function gaSoiEntry(K, tEpoch, pkey, Lcent, soi, windows){
+  const relAt=(t)=>{ const a=kepProp(K,t-tEpoch), b=bodyStateFast(pkey,Lcent+t/100);
+                      return [a.pos[0]-b.pos[0],a.pos[1]-b.pos[1],a.pos[2]-b.pos[2]]; };
+  const distAt=(t)=>{ const r=relAt(t); return Math.hypot(r[0],r[1],r[2]); };
+  for(const win of windows){
+    const t0=win[0], t1=win[1], N=80, step=(t1-t0)/N;
+    let prev=t0;
+    if(distAt(prev) <= soi) return {t:prev, rel:relAt(prev)};
+    for(let i=1;i<=N;i++){
+      const t=t0+step*i;
+      if(distAt(t) <= soi){
+        let lo=prev, hi=t;
+        for(let k=0;k<45;k++){ const mid=(lo+hi)/2; if(distAt(mid)>soi) lo=mid; else hi=mid; }
+        const tt=(lo+hi)/2;
+        return {t:tt, rel:relAt(tt)};
+      }
+      prev=t;
+    }
+  }
+  return null;
+}
+// 完整遭遇：地心脱离状态 → 日心转移 → 进入行星引力圈 → 行星中心双曲线
+//   dvOutKmS：深空机动速度增量（沿发射面法向，用于修正轨道面），km/s
+function gaEncounter(planetKey, Lcent, exitLocal, dvOutKmS, inner){
+  const P = GA_PLANETS[planetKey];
+  const dp = marsDepartureState(Lcent, exitLocal, inner);
+  const nh = dp.fr.nHat;
+  const dv = (dvOutKmS||0)*(365.25*86400)/KM_PER_AU;       // AU/yr
+  const v1 = [dp.v0[0]+nh[0]*dv, dp.v0[1]+nh[1]*dv, dp.v0[2]+nh[2]*dv];
+  const el = orbitalElements(dp.r0, v1, MU_SUN_AU);
+  if(el.escape) return null;
+  const K = kepBasis(dp.r0, v1, MU_SUN_AU);
+  let en;
+  if(inner){
+    // 内行星：用「最近点」而不是「SOI 入口」—— 内行星引力圈小、掠过时间短，
+    // 若强制要求进入 SOI，残差函数在绝大部分参数域上是空集，无法做牛顿迭代。
+    // 这里取转移轨道与行星轨迹的最近点并在此建立行星中心双曲线：
+    // 分离量大时双曲线近心点 ≈ 分离量本身 → C1 残差 =「差了多少」，连续可导。
+    en = gaClosestApproach(K, exitLocal.t, P.key, Lcent, gaWindowsPeri(K, exitLocal.t, 45, 3));
+  } else {
+    en = gaSoiEntry(K, exitLocal.t, P.key, Lcent, P.soi, gaWindows(K, exitLocal.t, 620, 3, TARGETS[planetKey].rMean));
+  }
+  if(!en) return null;
+  const a = kepProp(K, en.t - exitLocal.t);
+  const b = bodyStateFast(P.key, Lcent + en.t/100);
+  const u = [a.vel[0]-b.vel[0], a.vel[1]-b.vel[1], a.vel[2]-b.vel[2]];
+  const pc = pcConic(en.rel, u, P.mu);
+  if(pc.bound) return null;
+  const tP = en.t + pc.dtPeri;
+  const pl = bodyStateFast(P.key, Lcent + tP/100);
+  const rM = Math.hypot(pl.pos[0],pl.pos[1],pl.pos[2]);
+  const rHat = [pl.pos[0]/rM, pl.pos[1]/rM, pl.pos[2]/rM];
+  const hv = [pl.pos[1]*pl.vel[2]-pl.pos[2]*pl.vel[1],
+              pl.pos[2]*pl.vel[0]-pl.pos[0]*pl.vel[2],
+              pl.pos[0]*pl.vel[1]-pl.pos[1]*pl.vel[0]];
+  const hm = Math.hypot(hv[0],hv[1],hv[2]) || 1;
+  const hHat = [hv[0]/hm, hv[1]/hm, hv[2]/hm];
+  const tHat = [hHat[1]*rHat[2]-hHat[2]*rHat[1], hHat[2]*rHat[0]-hHat[0]*rHat[2], hHat[0]*rHat[1]-hHat[1]*rHat[0]];
+  const dot=(x,y)=>x[0]*y[0]+x[1]*y[1]+x[2]*y[2];
+  return {planet:P, Lcent:Lcent, ex:exitLocal, dp:dp, K:K, el:el, en:en, pc:pc, tP:tP,
+          rHat:rHat, tHat:tHat, hHat:hHat,
+          C1:pc.rp, C2:dot(pc.relP,hHat), C3:dot(pc.relP,rHat), C4:dot(pc.relP,tHat),
+          flightDays:(en.t-exitLocal.t)*365.25, periDays:(tP-exitLocal.t)*365.25,
+          vBefore:[b.vel[0]+u[0], b.vel[1]+u[1], b.vel[2]+u[2]]};
+}
+// 借力后的日心状态：行星中心双曲线飞出引力圈 → 叠回行星公转速度
+function gaAfterFlyby(enc){
+  const P = enc.planet, pc = enc.pc;
+  const relAt=(dt)=>kepProp(pc.K, dt).pos;
+  const gapTo=(dt)=>{ const rp=relAt(dt); return Math.hypot(rp[0],rp[1],rp[2]); };
+  // 近心点之后行星中心距单调回升：先用双曲近点角解析式估出圈时刻，再二分到边界
+  const H = Math.acosh(1 + P.soi/pc.ah);
+  let lo = pc.dtPeri, hi = pc.dtPeri + (pc.e*Math.sinh(H) - H)/pc.K.n + 0.02;
+  for(let k=0;k<50;k++){ const mid=(lo+hi)/2; if(gapTo(mid) < P.soi) lo=mid; else hi=mid; }
+  const dtExit=(lo+hi)/2;
+  if(gapTo(dtExit) < P.soi*0.999) return null;             // 没能飞出引力圈（异常防护）
+  const relExit = relAt(dtExit);
+  const velRel  = kepProp(pc.K, dtExit).vel;
+  const pl = bodyStateFast(P.key, enc.Lcent + (enc.en.t+dtExit)/100);
+  const pos = [pl.pos[0]+relExit[0], pl.pos[1]+relExit[1], pl.pos[2]+relExit[2]];
+  const vel = [pl.vel[0]+velRel[0], pl.vel[1]+velRel[1], pl.vel[2]+velRel[2]];
+  return {pos:pos, vel:vel, dtExit:dtExit, tExit:enc.en.t+dtExit,
+          relExit:relExit, velRel:velRel, el:orbitalElements(pos, vel, MU_SUN_AU)};
+}
+/* ---------- 木星借力窗口求解器 ----------
+   三个未知量：发射日 L（儒略世纪）、主动段时长 b（分钟）、深空机动 Δv（km/s）
+   三条残差都作用在行星中心双曲线的近心点矢量 relP（行星中心 → 近心点）上：
+     C1 = rp − rpTarget      近心点距离 = 旅行者1号实测 349,000 km（4.9 R_J）
+     C2 = relP·ĥ             遭遇平面 = 木星轨道平面
+     C3 = relP·r̂             近心点落在日心连线上（于是只剩 ±t̂ 两支）
+   分支：C4 = relP·t̂ < 0 → 近心点在木星「正后方」→ 行星把航天器往前拽 → 能量增益。 */
+const GA_RP_TARGET_KM = 349000;   // 旅行者1号木星最近点（距木星中心）
+// 3×3 数值雅可比 + 阻尼线搜索的高斯牛顿
+function gaGaussNewton(F, x0, tol, maxIter, bounds, h){
+  const mag=(v)=>Math.hypot(v[0],v[1],v[2]);
+  const det=(A)=>A[0][0]*(A[1][1]*A[2][2]-A[1][2]*A[2][1])
+                 -A[0][1]*(A[1][0]*A[2][2]-A[1][2]*A[2][0])
+                 +A[0][2]*(A[1][0]*A[2][1]-A[1][1]*A[2][0]);
+  let x=x0.slice(), f=F(x);
+  if(!f) return null;
+  for(let it=0; it<maxIter; it++){
+    if(mag(f) < tol) break;
+    const J=[[0,0,0],[0,0,0],[0,0,0]];
+    let ok=true;
+    for(let j=0;j<3;j++){
+      const xp=x.slice(); xp[j]+=h[j];
+      const xm=x.slice(); xm[j]-=h[j];
+      const fp=F(xp), fm=F(xm);
+      if(!fp||!fm){ ok=false; break; }
+      for(let i=0;i<3;i++) J[i][j]=(fp[i]-fm[i])/(2*h[j]);
+    }
+    if(!ok) break;
+    const D=det(J);
+    if(!isFinite(D)||Math.abs(D)<1e-30) break;
+    const dx=[det([[-f[0],J[0][1],J[0][2]],[-f[1],J[1][1],J[1][2]],[-f[2],J[2][1],J[2][2]]])/D,
+              det([[J[0][0],-f[0],J[0][2]],[J[1][0],-f[1],J[1][2]],[J[2][0],-f[2],J[2][2]]])/D,
+              det([[J[0][0],J[0][1],-f[0]],[J[1][0],J[1][1],-f[1]],[J[2][0],J[2][1],-f[2]]])/D];
+    let step=1, done=false;
+    for(let s=0;s<18;s++){
+      const xn=x.slice();
+      for(let j=0;j<3;j++) xn[j]=x[j]+step*dx[j];
+      xn[0]=Math.max(bounds[0][0],Math.min(bounds[0][1],xn[0]));
+      xn[1]=Math.max(bounds[1][0],Math.min(bounds[1][1],xn[1]));
+      xn[2]=Math.max(bounds[2][0],Math.min(bounds[2][1],xn[2]));
+      const fn=F(xn);
+      if(fn && mag(fn)<mag(f)){ x=xn; f=fn; done=true; break; }
+      step*=0.5;
+    }
+    if(!done) break;
+  }
+  return {x:x, f:f, mag:mag(f)};
+}
+// ---------- 通用借力窗口求解器 ----------
+// 目标行星 + 目标近心点 + 推力 + 主动段 + 方位角
+// 未知量：发射日 L（儒略世纪）、主动段时长 b（分钟）、深空机动 Δv（km/s）
+// 三条残差都作用在行星中心双曲线的近心点矢量 relP 上：
+//   C1 = rp − rpTarget    近心点距离
+//   C2 = relP·ĥ           遭遇平面 = 行星轨道平面
+//   C3 = relP·r̂           近心点落在日心连线上
+// 分支：C4 = relP·t̂ < 0 → 近心点在行星「正后方」→ 能量增益（加速）
+//       C4 = relP·t̂ > 0 → 近心点在行星「正前方」→ 能量损失（减速）
+// mode='gain' 取增益分支（外行星：木星/土星借力加速）
+// mode='brake' 取减速分支（内行星：金星/水星借力减速 —— 帕克与 MESSENGER 的真实现役）
+// Ldays：把发射日限制在 baseT ± Ldays 天内（用于「按真实发射日出发」的真实任务复现）
+function solveFlyby(planetKey, baseT, gLoad, bStart, azimuth, rpTargetKm, mode, inner, Ldays){
+  const P = GA_PLANETS[planetKey];
+  const rpT = (rpTargetKm === undefined || rpTargetKm === null ? GA_RP_TARGET_KM : rpTargetKm)/KM_PER_AU;
+  const F = (x)=>{
+    const ex = geocentricExitState(gLoad, x[1], azimuth);
+    if(!ex) return null;
+    const enc = gaEncounter(planetKey, x[0], ex, x[2], inner);
+    if(!enc) return null;
+    return [enc.C1 - rpT, enc.C2, enc.C3];
+  };
+  let b0 = bStart;
+  if(b0 === undefined || b0 === null){
+    b0 = inner ? burnForPeriapsis(baseT, gLoad, azimuth, TARGETS[planetKey].rMean)
+                : burnForApoapsis(baseT, gLoad, azimuth, TARGETS[planetKey].rMean);
+    if(b0 === null) return null;
+  }
+  const bGrid = [b0-0.24, b0-0.12, b0, b0+0.12, b0+0.24];
+  const dvGrid = [-3, -1.5, 0, 1.5, 3];
+  const span = (Ldays === undefined || Ldays === null) ? 840 : Ldays;
+  // 相位角播种：霍曼几何 → 出发时目标行星须领先地球的角度
+  const nP = TARGETS[planetKey].nDeg*Math.PI/180*365.25;
+  const nE = 0.9856*Math.PI/180*365.25;
+  const rate = nP - nE;
+  const dPhase=(t)=>{ const p=bodyWorldAt(P.key,t), e=bodyStateAt('Earth',t);
+                      return wrapPi(Math.atan2(-p[2],p[0]) - Math.atan2(-e.pos[2], e.pos[0])); };
+  const ph0 = dPhase(baseT);
+  const relPhase=(t)=>{ const d=dPhase(t)-ph0;
+    const k=Math.round((rate*(t-baseT)-d)/(2*Math.PI)); return d + k*2*Math.PI; };
+  const aH = (1 + TARGETS[planetKey].rMean)/2;   // 内行星：地球在远日点、目标在近心点，a 与外行星同式
+  const tHalf = Math.PI*Math.sqrt(Math.abs(aH*aH*aH)/MU_SUN_AU);
+  const lead = 180 - TARGETS[planetKey].nDeg*365.25*tHalf;
+  const G_OFF = [-12,-7,-2,3,8,13];
+  const candL = [];
+  for(let d=-span; d<=span; d+=10) candL.push(baseT + d/36525);
+  for(const off of G_OFF){
+    const g = (lead + off)*Math.PI/180;
+    for(let m=-4; m<=4; m++){
+      const target = g + m*2*Math.PI - ph0;
+      let t = baseT + target/rate;
+      for(let it=0; it<6; it++){
+        const e = target - relPhase(t);
+        if(Math.abs(e) < 1e-9) break;
+        t += e/rate;
+      }
+      const dd = (t-baseT)*36525;
+      if(dd < -span || dd > span) continue;
+      candL.push(t);
+    }
+  }
+  const seeds = [];
+  for(const L of candL){
+    for(let bi=0; bi<bGrid.length; bi++){
+      for(let di=0; di<dvGrid.length; di++){
+        const f = F([L, bGrid[bi], dvGrid[di]]);
+        if(f) seeds.push({x:[L, bGrid[bi], dvGrid[di]], res:Math.hypot(f[0],f[1],f[2])});
+      }
+    }
+  }
+  if(!seeds.length) return null;
+  seeds.sort((a,b)=>a.res-b.res);
+  const bounds = [[baseT-span/36525, baseT+span/36525], [Math.max(0.5,b0-1.0), b0+1.0], [-4, 4]];
+  const h = [0.5/36525, 0.005, 0.02];
+  const results = [];
+  for(const s of seeds.slice(0, 18)){
+    const r = gaGaussNewton(F, s.x, 1e-10, 40, bounds, h);
+    if(!r) continue;
+    const ex = geocentricExitState(gLoad, r.x[1], azimuth);
+    if(!ex) continue;
+    const enc = gaEncounter(planetKey, r.x[0], ex, r.x[2], inner);
+    if(!enc) continue;
+    results.push({x:r.x, mag:r.mag, enc:enc, gain:(enc.C4 < 0)});
+  }
+  if(!results.length) return null;
+  const wantGain = (mode !== 'brake');
+  let pool = results.filter(q => wantGain ? q.gain : !q.gain);
+  if(!pool.length) pool = results;
+  pool.sort((a,b)=>a.mag-b.mag);
+  const bestMag = pool[0].mag;
+  const near = pool.filter(q=>q.mag <= bestMag*1.6);
+  near.sort((a,b)=> (a.enc.periDays - b.enc.periDays) || (a.mag-b.mag));
+  const pick = near[0];
+  const enc = pick.enc, af = gaAfterFlyby(enc);
+  const spd=(v)=>auPerYrToKmPerSec(Math.hypot(v[0],v[1],v[2]));
+  return {
+    planetKey: planetKey, mode: wantGain ? 'gain' : 'brake', inner: !!inner,
+    T: pick.x[0], days: (pick.x[0]-baseT)*36525,
+    burnMinutes: pick.x[1], dvOut: pick.x[2],
+    missKm: pick.mag*KM_PER_AU,
+    periKm: enc.pc.rp*KM_PER_AU,
+    periAltKm: enc.pc.rp*KM_PER_AU - enc.planet.R*KM_PER_AU,
+    ecc: enc.pc.e,
+    vInfKmS: auPerYrToKmPerSec(enc.pc.vInf),
+    deltaDeg: enc.pc.delta*180/Math.PI,
+    speedBefore: spd(enc.vBefore), speedAfter: af ? spd(af.vel) : 0,
+    apoAU: enc.el.apoAU, arriveDays: enc.periDays,
+    gain: pick.gain, escape: af ? af.el.escape : false,
+    periAfterAU: af ? af.el.periAU : 0, apoAfterAU: af ? af.el.apoAU : 0,
+    periDate: tCenturiesToMs(enc.Lcent + enc.tP/100)
+  };
+}
+function solveJupiterFlyby(baseT, gLoad, bStart, azimuth){
+  return solveFlyby('jupiter', baseT, gLoad, bStart, azimuth, GA_RP_TARGET_KM, 'gain', false);
+}
+/* ---------- 外行星发射窗口（霍曼相位角） ---------- */
+function solveOuterWindow(planetKey, baseT, gLoad, azimuth){
+  const T = TARGETS[planetKey];
+  let b = burnForApoapsis(baseT, gLoad, azimuth, T.rMean);
+  if(b === null) return null;
+  const ex = geocentricExitState(gLoad, b, azimuth);
+  if(!ex) return null;
+  const dp = marsDepartureState(baseT, ex);
+  const el = orbitalElements(dp.r0, dp.v0, MU_SUN_AU);
+  if(el.escape) return null;
+  // 迭代：让转移远日点 = 抵达时刻行星的真实日心距（否则会差好几千万 km）
+  const align = (L0, b0)=>{
+    const e0 = geocentricExitState(gLoad, b0, azimuth);
+    if(!e0) return null;
+    const d0 = marsDepartureState(L0, e0);
+    const K0 = kepBasis(d0.r0, d0.v0, MU_SUN_AU);
+    const nP = T.nDeg*Math.PI/180*365.25;
+    let tt = kepApoInfo(K0, e0.t).tApo;
+    for(let i=0;i<10;i++){
+      const P = kepProp(K0, tt - e0.t);
+      const pl = bodyWorldAt(T.key, L0 + tt/100);
+      const f = wrapPi(Math.atan2(-P.pos[2],P.pos[0]) - Math.atan2(-pl[2],pl[0]));
+      const fp = K0.hm/(P.r*P.r) - nP;
+      if(Math.abs(fp) < 1e-9) break;
+      const dt = -f/fp;
+      if(Math.abs(dt) > 0.6) break;
+      tt += dt;
+      if(Math.abs(dt) < 1e-11) break;
+    }
+    const pl = bodyWorldAt(T.key, L0 + tt/100);
+    return {t:tt, rJ:Math.hypot(pl[0],pl[1],pl[2]), pos:pl, K:K0, e0:e0};
+  };
+  for(let it=0; it<6; it++){
+    const al = align(baseT, b);
+    if(!al) break;
+    const dp0 = marsDepartureState(baseT, al.e0);
+    const apo0 = orbitalElements(dp0.r0, dp0.v0, MU_SUN_AU).apoAU;
+    const err = al.rJ - apo0;
+    if(Math.abs(err) < 2e-4) break;
+    const db = 0.05;
+    const eP = geocentricExitState(gLoad, b+db, azimuth);
+    const eM = geocentricExitState(gLoad, b-db, azimuth);
+    if(!eP || !eM) break;
+    const dP = marsDepartureState(baseT, eP), dM = marsDepartureState(baseT, eM);
+    const aP = orbitalElements(dP.r0, dP.v0, MU_SUN_AU).apoAU;
+    const aM = orbitalElements(dM.r0, dM.v0, MU_SUN_AU).apoAU;
+    const slope = (aP-aM)/(2*db);
+    if(!isFinite(slope) || Math.abs(slope) < 1e-6) break;
+    const nb = Math.max(3, Math.min(60, b + err/slope));
+    if(Math.abs(nb-b) < 1e-4) break;
+    b = nb;
+  }
+  const tFlight = Math.PI*Math.sqrt(el.a*el.a*el.a/MU_SUN_AU);      // 半周期（年）
+  const phiH = 180 - T.nDeg*tFlight*365.25;                        // 霍曼理想出发相位角
+  // 真实偏差（发射日 → 掠过行星时与它的距离）
+  const missAt = (x)=>{
+    const al = align(x, b);
+    if(!al) return Infinity;
+    const P = kepProp(al.K, al.t - al.e0.t);
+    return Math.hypot(P.pos[0]-al.pos[0], P.pos[1]-al.pos[1], P.pos[2]-al.pos[2])*KM_PER_AU;
+  };
+  const gr = (Math.sqrt(5)-1)/2;
+  const refine = (center, halfDays)=>{
+    let lo = Math.max(baseT, center - halfDays/36525), hi = center + halfDays/36525;
+    let c = hi - gr*(hi-lo), d = lo + gr*(hi-lo), fc = missAt(c), fd = missAt(d);
+    for(let i=0;i<22;i++){
+      if(fc < fd){ hi=d; d=c; fd=fc; c=hi-gr*(hi-lo); fc=missAt(c); }
+      else { lo=c; c=d; fc=fd; d=lo+gr*(hi-lo); fd=missAt(d); }
+    }
+    return Math.max(baseT, (lo+hi)/2);
+  };
+  const pack = (L)=>{
+    const alF = align(L, b);
+    const dpF = marsDepartureState(L, alF ? alF.e0 : ex);
+    const elF = orbitalElements(dpF.r0, dpF.v0, MU_SUN_AU);
+    return { T:L, days:(L-baseT)*36525, burnMinutes:b, missKm: missAt(L),
+             apoAU: elF.apoAU, arriveDays: alF ? alF.t*365.25 : 0,
+             phaseDeg: marsPhaseAngle2(T.key, L)*180/Math.PI, phiH: phiH };
+  };
+  // ① 先在 baseT 之后粗扫，找「最近的可行发射日」。
+  //    外行星窗口有 20~40 天宽（相位角在理想值附近一段范围都能对上），
+  //    只盯理想相位角会在「窗口刚开/刚关」时白等一个会合周期（外行星是 1~13 年）。
+  let bestL = null, bestM = Infinity;
+  for(let d=0; d<=45; d++){
+    const x = baseT + d/36525;
+    const m = missAt(x);
+    if(m < bestM){ bestM = m; bestL = x; }
+  }
+  if(bestL !== null && bestM <= T.soiKm) return pack(refine(bestL, 1.2));
+  // ② 45 天内没有可行解 → 等下一个会合周期（相位角理想交叉点）
+  const dBase = marsPhaseAngle2(T.key, baseT)*180/Math.PI;
+  const rate = (0.9856 - T.nDeg)*36525;                           // 相位角递减速率 (°/儒略世纪)
+  const rel = (t)=>{
+    let d = marsPhaseAngle2(T.key, t)*180/Math.PI - dBase;
+    const k = Math.round((-rate*(t-baseT) - d)/360);
+    return d + k*360;
+  };
+  let goal = phiH - dBase;
+  while(goal > 0) goal -= 360;
+  const syn = 360/rate;                                             // 会合周期（儒略世纪）
+  let lo = baseT, hi = baseT + syn;
+  for(let i=0;i<60;i++){
+    const mid = (lo+hi)/2;
+    if(rel(mid) - goal > 0) lo = mid; else hi = mid;
+  }
+  const L0 = (lo+hi)/2;
+  return pack(refine(L0, 5));
+}
+// 任意两星体的相位角（弧度）
+function marsPhaseAngle2(key, t){
+  const p = bodyWorldAt(key, t), e = bodyStateAt('Earth', t);
+  return Math.atan2(-p[2], p[0]) - Math.atan2(-e.pos[2], e.pos[0]);
+}
 /* ---------- 火箭 UI + 渲染 + 播放循环 ---------- */
 // 相机状态（球坐标绕太阳）——必须在火箭代码之前声明：updateRocketPosition 会按 camDist 缩放光点
 let camDist = 40*AU, camTheta = 0.6, camPhi = 1.1;
@@ -886,10 +2332,29 @@ const rpB = document.getElementById('rp-b'), rpBVal = document.getElementById('r
 const rpAz = document.getElementById('rp-az'), rpAzVal = document.getElementById('rp-azval');
 const rpLaunch = document.getElementById('rp-launch'), rpReset = document.getElementById('rp-reset');
 const rpStatus = document.getElementById('rp-status');
+const rpWindow = document.getElementById('rp-window');
+// 距离格式化：万 km / 亿 km
+// 把速度换算成孩子熟悉的尺度：北京时间到上海约 1200 km
+function speedAnalogy(kmS){
+  if(!kmS || !isFinite(kmS) || kmS <= 0) return '';
+  const BJ_SH = 1200;
+  const t = BJ_SH/kmS;
+  if(t < 90) return `≈ 北京到上海只要 ${t.toFixed(0)} 秒`;
+  if(t < 5400) return `≈ 北京到上海约 ${(t/60).toFixed(0)} 分钟`;
+  return `≈ 北京到上海约 ${(t/3600).toFixed(1)} 小时`;
+}
+function fmtMiss(km){
+  if(km === undefined || km === null || !isFinite(km)) return '—';
+  if(km < 1e4) return km.toFixed(0)+' km';
+  if(km < 1e6) return (km/1e4).toFixed(1)+' 万 km';
+  return (km/1e8).toFixed(2)+' 亿 km';
+}
 
 rocketBtn.onclick = ()=>{
-  rocketPanel.classList.toggle('show');
-  rocketBtn.classList.toggle('active');
+  const on = !rocketPanel.classList.contains('show');
+  rocketPanel.classList.toggle('show', on);
+  rocketBtn.classList.toggle('active', on);
+  document.body.classList.toggle('rp-open', on);   // 工具条让位给面板
 };
 
 const rocketState = {
@@ -977,6 +2442,8 @@ function getLastTrajPoint(){
 function trailWorldPos(p, mode){
   // mode: earth=地心相对(加earthPos) / sun=日心(直接用) / moon=月心相对 / mars=火星相对
   if(mode === 'earth'){
+    // 地心段已预先换算到世界系（逐点用该时刻真实地球位置 + 发射时刻局部标架）
+    if(p.wx !== undefined) return [p.wx, p.wy, p.wz];
     const e = bodyMeshes.Earth.position;
     return [e.x + p.x, e.y + p.y, e.z + p.z];
   }
@@ -1033,11 +2500,12 @@ function rebuildPredictGeometry(){
 }
 
 // 预设任务的精确参数覆盖（发射/预览都用这套；滑块拖动即清空，回到手动模式）
-let rocketTarget = null;   // 任务目标天体：null / 'moon' / 'mars'
+let rocketTarget = null;   // 任务目标天体：null / 'moon' / 'mars' / 'ga'
+let rocketGa = {planet:'jupiter', inner:false};   // 借力目标：外行星=加速（金星/水星=减速）
 let rocketG = null;        // 精确推力 g（可超出滑块步进）
 let rocketB = null;        // 精确主动段分钟
-let moonPhaseOverride = null;  // 月球任务期间：把月球冻结到转移远地点方向，使绕月入轨与转移轨迹连续
-let marsPosOverride = null;    // 火星任务期间：把火星放到转移远日点位置，使绕火入轨与转移轨迹连续
+let rocketWindow = null;   // 最近发射窗口搜索结果 {days, missKm, T}
+let rocketDv = 0;          // 深空机动 Δv（km/s，沿发射面法向），由木星窗口求解器给出
 
 // 预览（参数变化时实时更新）
 function updatePreview(){
@@ -1045,15 +2513,30 @@ function updatePreview(){
     gLoad: (rocketG !== null ? rocketG : parseFloat(rpG.value)),
     burnMinutes: (rocketB !== null ? rocketB : parseFloat(rpB.value)),
     azimuth: parseFloat(rpAz.value),
-    target: rocketTarget
+    target: rocketTarget,
+    ga: rocketGa,
+    dvOut: rocketDv,
+    epochT: dateToT(simDate)
   });
   rocketState.trajectory = tr;
   rocketState.idx = 0;
   rocketState.phase = 'idle';
-  // 月球/火星任务的「预览虚线」也要把目标天体对齐到转移终点，避免预测轨迹出现 90° 跳变
-  moonPhaseOverride = (tr.moonPhaseAngle !== undefined) ? tr.moonPhaseAngle : null;
-  marsPosOverride = tr.marsHelioPos ? [tr.marsHelioPos[0], tr.marsHelioPos[1], tr.marsHelioPos[2]] : null;
-  let label = {crash:'坠毁',reentry:'重返大气',escape_soi:'飞出SOI',escape:'逃逸',elliptical:'椭圆轨道',suborbital:'亚轨道',moon_capture:'入轨环绕月球',mars_capture:'入轨环绕火星'}[tr.orbitType]||tr.orbitType;
+  // === 发射窗口（目标星体） ===
+  //   火星：窗口求解要在整条转移轨道上做数值寻优（约 0.3 s），改成按需计算
+  rocketWindow = null;
+  if(rocketTarget === 'mars' && tr.exitLocal && tr.escapedSOI){
+    rpWindow.style.display = 'block';
+    rpWindow.textContent = '🎯 跳到最近发射窗口';
+  } else if(rocketTarget === 'ga' && tr.exitLocal && tr.escapedSOI){
+    rpWindow.style.display = 'block';
+    rpWindow.textContent = '🎯 跳到最近发射窗口';
+  } else if(rocketTarget === 'moon' && tr.apogeeLocal){
+    rocketWindow = searchLaunchWindow('moon', dateToT(simDate), {apogee: tr.apogeeLocal, apogeeT: tr.apogeeT});
+    rpWindow.style.display = rocketWindow ? 'block' : 'none';
+  } else {
+    rpWindow.style.display = 'none';
+  }
+  let label = {crash:'坠毁',reentry:'重返大气',escape_soi:'飞出SOI',escape:'逃逸',elliptical:'椭圆轨道',suborbital:'亚轨道',moon_capture:'入轨环绕月球',moon_miss:'未对准月球',mars_capture:'入轨环绕火星',mars_miss:'未对准火星',ga_flyby:'引力弹弓', ga_miss:'没掠过行星'}[tr.orbitType]||tr.orbitType;
   let orbitInfo = '';
   if(tr.orbitType==='elliptical' && tr.periapsisAltKm !== undefined){
     orbitInfo = ` · 近地点${Math.max(0,tr.periapsisAltKm).toFixed(0)}km 远地点${tr.aphelionAltKm.toFixed(0)}km`;
@@ -1067,10 +2550,48 @@ function updatePreview(){
     }
   } else if(tr.orbitType==='moon_capture' || tr.orbitType==='mars_capture'){
     const cname = tr.orbitType==='moon_capture' ? '月球' : '火星';
-    orbitInfo = ` · 绕${cname}周期约${tr.capturePeriodDays.toFixed(1)}天`;
+    const miss = tr.orbitType==='moon_capture' ? tr.moonMissKm : tr.marsMissKm;
+    orbitInfo = ` · 绕${cname}周期约${tr.capturePeriodDays.toFixed(1)}天 · 交会偏差 ${fmtMiss(miss)}`;
+    if(tr.orbitType==='mars_capture'){
+      orbitInfo += ` · 抵达${fmtDate(new Date(tCenturiesToMs(tr.marsArriveEpochT)))}`;
+      if(tr.tcmDvKmS) orbitInfo += ` · 深空机动Δv ${tr.tcmDvKmS.toFixed(3)}km/s`;
+    }
+  } else if(tr.orbitType==='ga_flyby' || tr.orbitType==='ga_escape'){
+    const gi = tr.gaInfo;
+    label = tr.orbitType==='ga_escape' ? (gi.cn+'借力后飞出太阳系') : (gi.cn+'引力弹弓');
+    orbitInfo = ` · ${gi.arriveDays.toFixed(0)}天后掠过${gi.cn} 近心点高度 ${fmtMiss(gi.periAltKm)}`
+      + ` · 偏转 ${gi.deltaDeg.toFixed(0)}°`
+      + ` · 日心速度 ${gi.speedBefore.toFixed(1)}→${gi.speedAfter.toFixed(1)} km/s`
+      + (gi.escape
+          ? ` · 摆脱太阳引力（余速 ${auPerYrToKmPerSec(tr.hcVInf).toFixed(1)} km/s）`
+          : ` · 远日点 ${gi.apoBefore.toFixed(1)}→${gi.apoAfter.toFixed(1)} AU`)
+      + (tr.gaDvKmS ? ` · 深空机动Δv ${tr.gaDvKmS.toFixed(2)}km/s（出发后的轨道微调）` : '');
+  } else if(tr.orbitType==='ga_miss'){
+    orbitInfo = ' · 没进入目标行星的引力圈（点「跳到最近发射窗口」自动求解日期+主动段+Δv）';
+  } else if(tr.orbitType==='moon_miss' || tr.orbitType==='mars_miss'){
+    const cname = tr.orbitType==='moon_miss' ? '月球' : '火星';
+    const miss = tr.orbitType==='moon_miss' ? tr.moonMissKm : tr.marsMissKm;
+    orbitInfo = ` · 抵达时与${cname}偏差 ${fmtMiss(miss)}（未进入其引力圈）`;
+    if(rocketTarget==='mars'){
+      // 相位角是「能不能去」的唯一开关：φ 降到 44.3° 才进入地火窗口
+      const ph = marsPhaseAngle(dateToT(simDate))*180/Math.PI;
+      let wait = (ph - 44.34)/0.4615;
+      if(wait < 0) wait += 779.9;
+      orbitInfo += ` · 相位角 ${ph.toFixed(1)}°（窗口需 44.3°）· 约 ${wait.toFixed(0)} 天后进入窗口`;
+    } else if(rocketWindow){
+      const wd = new Date(tCenturiesToMs(rocketWindow.T));
+      orbitInfo += ` · 最近窗口 ${fmtDate(wd)}（${rocketWindow.days.toFixed(1)}天后）`;
+    }
   }
-  rpStatus.textContent = `关机 ${tr.burnVel.toFixed(2)} km/s · ${label}${orbitInfo}`;
-  rpStatus.className = 'rp-status ' + tr.orbitType.replace('escape_soi','escape');
+  let rpAnalogy = '';
+  if(tr.orbitType==='ga_flyby' || tr.orbitType==='ga_escape'){
+    rpAnalogy = '借完力日心速度 ' + tr.gaInfo.speedAfter.toFixed(1) + ' km/s —— ' + speedAnalogy(tr.gaInfo.speedAfter);
+  } else if(tr.orbitType==='escape_soi' && tr.hcEscape){
+    rpAnalogy = '逃逸速度 ' + auPerYrToKmPerSec(tr.hcVInf).toFixed(1) + ' km/s —— ' + speedAnalogy(auPerYrToKmPerSec(tr.hcVInf));
+  }
+  rpStatus.innerHTML = `关机 ${tr.burnVel.toFixed(2)} km/s · ${label}${orbitInfo}`
+    + (rpAnalogy ? `<small class="rp-analogy">${rpAnalogy}</small>` : '');
+  rpStatus.className = 'rp-status ' + tr.orbitType.replace('escape_soi','escape').replace('ga_escape','escape');
   // 重置 UI
   rpLaunch.disabled = false;
   // 更新火箭停靠位置
@@ -1086,6 +2607,21 @@ rpG.oninput = ()=>{ rpGVal.textContent = rpG.value; rocketG = rocketB = null; up
 rpB.oninput = ()=>{ rpBVal.textContent = rpB.value; rocketG = rocketB = null; updatePreview(); };
 rpAz.oninput = ()=>{ rpAzVal.textContent = rpAz.value; updatePreview(); };
 
+// 应用发射窗口：发射日期与主动段时长（= 逃逸能量 C3）是一起设计的，必须同时设定
+function applyLaunchWindow(w){
+  if(!w) return false;
+  simDate = new Date(tCenturiesToMs(w.T));
+  dateInput.value = fmtDate(simDate);
+  if(w.burnMinutes !== undefined){
+    rocketB = w.burnMinutes;
+    rpB.value = String(Math.max(3, Math.min(60, Math.round(w.burnMinutes))));
+    rpBVal.textContent = w.burnMinutes.toFixed(2);
+  }
+  if(w.dvOut !== undefined) rocketDv = w.dvOut;
+  updatePreview();
+  return true;
+}
+
 // 预设任务
 document.querySelectorAll('.rp-presets button').forEach(b=>{
   b.onclick = ()=>{
@@ -1095,17 +2631,92 @@ document.querySelectorAll('.rp-presets button').forEach(b=>{
       escape: {g:2.4, b:15, az:0, target:null},       // 逃逸太阳系：第三宇宙速度级，日心双曲线飞出太阳系
       mars:   {g:2.4, b:9, az:0, target:'mars'},      // 去火星：霍曼转移至火星轨道，入轨制动后环绕火星
       moon:   {g:1.3, b:18.02, az:0, target:'moon'},   // 去月球：奔月弹道远地点越过月球轨道，入轨制动后环绕月球
+      jupiter:{g:2.4, b:10.7, az:0, target:'ga', ga:{planet:'jupiter', inner:false}},  // 木星借力：转移远日点≈木星轨道（b≈14 会直接飞出太阳系）
     };
     const p = presets[preset];
     rpG.value = p.g; rpGVal.textContent = String(p.g);
     rpB.value = p.b; rpBVal.textContent = String(p.b);
     rpAz.value = p.az; rpAzVal.textContent = String(p.az);
     rocketTarget = p.target || null;
-    rocketG = p.g; rocketB = p.b;
-    moonPhaseOverride = null; marsPosOverride = null;
+    if(p.ga) rocketGa = p.ga;
+    rocketG = p.g; rocketB = p.b; rocketDv = 0;
     updatePreview();
+    // 目标星体任务：若当前日期不在发射窗口内 → 自动跳到最近窗口
+    // （真实地火窗口每 2.1353 年只有一次，约 36 天宽）
+    if(rocketTarget === 'mars'){
+      const curMiss = rocketState.trajectory ? rocketState.trajectory.marsMissKm : Infinity;
+      if(!(curMiss !== undefined && curMiss !== null && curMiss <= MARS_SOI_KM)){
+        rpStatus.textContent = '⏳ 正在搜索最近发射窗口…';
+        setTimeout(()=>{
+          const w = solveMarsWindow(dateToT(simDate), rocketG, rocketB, parseFloat(rpAz.value));
+          if(w && applyLaunchWindow(w)){
+            rpStatus.textContent = `🎯 已跳到发射窗口 ${fmtDate(simDate)} · ${rpStatus.textContent}`;
+            rpStatus.className = 'rp-status ' + (rocketState.trajectory.orbitType||'');
+          } else {
+            rpStatus.textContent = '❌ 未找到可行窗口：推力/主动段不足，无法把转移轨道推到火星轨道';
+          }
+        }, 30);
+      }
+    } else if(rocketTarget === 'moon' && rocketWindow){
+      const curMiss = rocketState.trajectory ? rocketState.trajectory.moonMissKm : Infinity;
+      if(rocketWindow.missKm < curMiss*0.9) applyLaunchWindow(rocketWindow);
+    } else if(rocketTarget === 'ga'){
+      rpStatus.textContent = '⏳ 正在搜索借力发射窗口…';
+      setTimeout(()=>{
+        const w = solveFlyby(rocketGa.planet, dateToT(simDate), rocketG, null, parseFloat(rpAz.value),
+                             GA_RP_TARGETS_KM[rocketGa.planet], rocketGa.inner?'brake':'gain', rocketGa.inner);
+        if(w && applyLaunchWindow(w)){
+          rpStatus.textContent = `🎯 已跳到借力发射窗口 ${fmtDate(simDate)} · ${rpStatus.textContent}`;
+          rpStatus.className = 'rp-status ' + (rocketState.trajectory.orbitType||'');
+        } else {
+          rpStatus.textContent = '❌ 没找到借力窗口（试试 2.4g 推力 + 约 10~12 分钟主动段）';
+        }
+      }, 30);
+    }
   };
 });
+
+// 「跳到最近发射窗口」按钮
+rpWindow.onclick = ()=>{
+  if(rocketTarget === 'ga'){
+    rpStatus.textContent = '⏳ 正在搜索借力发射窗口…';
+    setTimeout(()=>{
+      const w = solveFlyby(rocketGa.planet, dateToT(simDate),
+                                 rocketG !== null ? rocketG : parseFloat(rpG.value),
+                                 null, parseFloat(rpAz.value),
+                                 GA_RP_TARGETS_KM[rocketGa.planet], rocketGa.inner?'brake':'gain', rocketGa.inner);
+      if(!w){
+        rpStatus.textContent = '❌ 没找到借力窗口（试试 2.4g 推力 + 约 10~12 分钟主动段）';
+        return;
+      }
+      applyLaunchWindow(w);
+      rpStatus.textContent = `🎯 已跳到借力发射窗口 ${fmtDate(simDate)} · ${rpStatus.textContent}`;
+      rpStatus.className = 'rp-status ' + (rocketState.trajectory.orbitType||'');
+    }, 30);
+    return;
+  }
+  if(rocketTarget === 'mars'){
+    rpStatus.textContent = '⏳ 正在搜索最近发射窗口…';
+    setTimeout(()=>{
+      const w = solveMarsWindow(dateToT(simDate),
+                                rocketG !== null ? rocketG : parseFloat(rpG.value),
+                                rocketB !== null ? rocketB : parseFloat(rpB.value),
+                                parseFloat(rpAz.value));
+      if(!w){
+        rpStatus.textContent = '❌ 未找到可行窗口：推力/主动段不足，无法把转移轨道推到火星轨道';
+        return;
+      }
+      applyLaunchWindow(w);
+      rpStatus.textContent = `🎯 已跳到发射窗口 ${fmtDate(simDate)} · ${rpStatus.textContent}`;
+      rpStatus.className = 'rp-status ' + (rocketState.trajectory.orbitType||'');
+    }, 30);
+    return;
+  }
+  if(!rocketWindow) return;
+  applyLaunchWindow(rocketWindow);
+  rpStatus.textContent = `🎯 已跳到发射窗口 ${fmtDate(simDate)} · ${rpStatus.textContent}`;
+  rpStatus.className = 'rp-status ' + (rocketState.trajectory.orbitType||'');
+};
 
 rpLaunch.onclick = ()=>{
   if(!rocketState.trajectory) return;
@@ -1117,11 +2728,6 @@ rpLaunch.onclick = ()=>{
   rocketState.looping = false;
   rocketPredict.visible = false;
   rocketEvents.forEach(e=>scene.remove(e)); rocketEvents = [];
-  // 入轨捕获：把目标天体对齐到转移轨道终点（月球→远地点方向、火星→远日点位置），
-  // 使「转移轨迹 → 入轨制动 → 绕目标转圈」成为一条连续曲线，不再有 90° 跳变
-  const tr0 = rocketState.trajectory;
-  moonPhaseOverride = (tr0.moonPhaseAngle !== undefined) ? tr0.moonPhaseAngle : null;
-  marsPosOverride = tr0.marsHelioPos ? [tr0.marsHelioPos[0], tr0.marsHelioPos[1], tr0.marsHelioPos[2]] : null;
   rpLaunch.disabled = true;
   rpStatus.textContent = '🚀 发射中...';
   rpStatus.className = 'rp-status';
@@ -1138,13 +2744,233 @@ rpReset.onclick = ()=>{
   rocketPredict.visible = false;
   rocketTrailGeo.setAttribute('position', new THREE.Float32BufferAttribute([],3));
   rocketEvents.forEach(e=>scene.remove(e)); rocketEvents = [];
-  moonPhaseOverride = null;
-  marsPosOverride = null;
   rpStatus.textContent = '调整参数，看灰色虚线预览轨迹';
   rpStatus.className = 'rp-status';
   rpLaunch.disabled = false;
 };
 
+/* ---------- 真实任务档案（由 patch 注入） ---------- */
+/* ---------- 真实任务档案（NASA 真实任务的可玩版本） ---------- */
+// 每一张卡 = 一条真实任务线：真实发射日、真实借力链、真实近心点
+// 点「试一试」把某一跳装进上面的火箭面板，自己推一遍
+// （本模型一次只演一跳：从地球出发去那颗行星，不做多跳接力）
+const GA_RP_TARGETS_KM = {
+  jupiter:349136, saturn:186420, uranus:107092, neptune:29217,
+  venus:8552, mercury:2668
+};
+// ★ 每跳的「试一试」参数：由 patched 产物的 solveFlyby 离线求解 + computeTrajectory 逐条复现验证
+//   （b 与 dv 必须全精度：近心点对深空机动 Δv 极敏感，1e-4 km/s 就能让近心点漂 8000 km）
+const HOP_PARAMS = {
+  v1jupiter:  {planet:'jupiter', inner:false, date:'1977-09-04T04:33:28.204Z', g:2.4, b:10.852245187658099, az:0, dv:1.6819676722401604,
+               modelAlt:283695, modelPeri:'1979-09-02', s0:9.74, s1:19.4, esc:true},
+  v2jupiter:  {planet:'jupiter', inner:false, date:'1977-09-04T13:51:43.841Z', g:2.4, b:10.788753446029562, az:0, dv:2.163311036274707,
+               modelAlt:649070, modelPeri:'1979-10-21', s0:9.14, s1:18.04, esc:true},
+  galileoVenus:{planet:'venus',  inner:true,  date:'1989-10-03T19:56:56.829Z', g:2.4, b:8.636161763973279, az:0, dv:2.189412976571976,
+               modelAlt:14372, modelPeri:'1990-02-07', s0:37.45, s1:34.32, esc:false},
+  parkerVenus:{planet:'venus',   inner:true,  date:'2018-07-31T07:47:39.662Z', g:2.4, b:8.953894954872213, az:45, dv:-0.8298933936906656,
+               modelAlt:2087, modelPeri:'2018-11-01', s0:36.28, s1:32.22, esc:false},
+  messengerVenus:{planet:'venus',inner:true,  date:'2004-09-17T10:21:17.655Z', g:2.4, b:8.538407992159733, az:0, dv:-3.995326247994846,
+               modelAlt:9228, modelPeri:'2006-10-18', s0:37.87, s1:33.88, esc:false},
+  cassiniSaturn:{planet:'saturn', inner:false, date:'1997-07-03T22:12:01.790Z', g:2.4, b:11.367649409103134, az:0, dv:2.7681710585860637,
+               modelAlt:19981, modelPeri:'2004-07-21', s0:4.66, s1:16.12, esc:true},
+  cassiniVenus:{planet:'venus',  inner:true,  date:'1997-10-14T15:14:26.234Z', g:2.4, b:8.579861497949684, az:90, dv:0.3296046047788973,
+               modelAlt:22788, modelPeri:'1998-04-20', s0:37.29, s1:34.77, esc:false}
+};
+const MISSIONS = [
+  {
+    id:'voyager1', name:'旅行者 1 号', en:'Voyager 1', year:1977, badge:'借力加速', badgeColor:'#9fe08a',
+    lede:'第一个飞出太阳系的人造物体。它没那么多燃料，就一路借行星的力。',
+    chain:[
+      ['木星','加速离开地球','1979-03-05　最近 349,136 km（4.9 倍木星半径）'],
+      ['土星','再加速一把','1980-11-12　最近 186,420 km（3.1 倍土星半径）']
+    ],
+    hops:[
+      {key:'v1jupiter', label:'第 1 跳：木星借力', note:'模型在真实发射日当天附近解出：掠过高空 28.4 万 km（真实 27.9 万 km），日心速度 9.7 → 19.4 km/s，直接越过木星处的太阳逃逸阈值。'}
+    ],
+    result:'2012-08-25 穿出日球层顶。真实速度（NASA 任务报告）：木星借力前 13.1 km/s → 借力后 23.6 km/s，逃逸太阳系时约 16.5 km/s。',
+    tip:'木星又大又重，从它"后面"掠过去，它就把你甩得更远。这一下把日心速度拉高 10 km/s，正好够冲出太阳系。',
+    ck:['状态栏出现「飞出太阳系」','借完力日心速度从 9.7 涨到 19.4 km/s','掠过高空在 28 万 km 量级（真实 27.9 万 km）']
+  },
+  {
+    id:'voyager2', name:'旅行者 2 号', en:'Voyager 2', year:1977, badge:'连环加速', badgeColor:'#9fe08a',
+    lede:'唯一到过全部四颗外行星的探测器，也是飞得最远的人造物体。',
+    chain:[
+      ['木星','攒速度','1979-07-09　最近 721,834 km（10.1 倍木星半径）'],
+      ['土星','再攒一次','1981-08-26　最近 161,081 km（2.7 倍土星半径）'],
+      ['天王星','第三次','1986-01-24　最近 107,092 km（4.2 倍天王星半径）'],
+      ['海王星','最后一跳','1989-08-25　最近 29,217 km（1.2 倍海王星半径）']
+    ],
+    hops:[
+      {key:'v2jupiter', label:'第 1 跳：木星借力', note:'模型解出掠过高空 64.9 万 km（真实 65.2 万 km）——旅行者2号故意离木星远一点，好留出力气再去土星。'}
+    ],
+    result:'从发射到海王星一共 4,388 天（约 12 年）。1989 年还在飞，之后靠四台同位素发电机撑到今天。',
+    tip:'海王星在 30 AU 外，等它转到位置上要 12 年。探测器得一级一级借：木星 → 土星 → 天王星 → 海王星。',
+    ck:['状态栏出现「飞出太阳系」','借完力日心速度从 9.1 涨到 18.0 km/s','掠过高空在 65 万 km 量级（真实 65.2 万 km）']
+  },
+  {
+    id:'galileo', name:'伽利略号', en:'Galileo', year:1989, badge:'借力减速', badgeColor:'#ffb27a',
+    lede:'第一艘靠飞掠金星"刹车"、再用地球"点火"加速、最后抵达木星的探测器。',
+    chain:[
+      ['金星','减速：把轨道压低','1990-02-10　高空 16,000 km'],
+      ['地球','加速：第一次','1990-12-08　高空 960 km'],
+      ['地球','加速：第二次','1992-12-08　高空 303 km'],
+      ['木星','抵达并环绕','1995-12-07　近木点 21:53:44 UT，4.0 倍木星半径 ≈ 285,968 km']
+    ],
+    hops:[
+      {key:'galileoVenus', label:'第 1 跳：飞掠金星减速', note:'模型解出掠过高空 1.4 万 km（真实 1.6 万 km），日心速度 37.5 → 34.3 km/s —— 掉速了。'}
+    ],
+    result:'在木星上放了 95 分钟的探空大气探测器，2003-09-21 主动撞进木星大气结束任务，防止污染木星冰层。',
+    tip:'借力不只当加速器，也是减速器。飞近金星时从它前方掠过，被它"拽"住，日心轨道就掉下来——这一下是帕克和 MESSENGER 的看家本领。',
+    ck:['借力后日心速度变小了（37.5 → 34.3 km/s）','远日点从 1.0 AU 掉到 0.7 AU 以下','这就是「金星刹车」的原理']
+  },
+  {
+    id:'cassini', name:'卡西尼号', en:'Cassini', year:1997, badge:'借力加速', badgeColor:'#9fe08a',
+    lede:'土星探测器。用了 7 年、绕行 68 亿公里，才把惠更斯号送到泰坦上。',
+    chain:[
+      ['金星','减速：第 1 次','1998-04-26　高空 284 km'],
+      ['金星','减速：第 2 次','1999-06-24　高空 600 km'],
+      ['地球','加速','1999-08-18　高空 1,171 km'],
+      ['木星','加速','2000-12-30　距云顶 970 万 km（远距离掠过）'],
+      ['土星','抵达并环绕','2004-07-01　最近点距中心 80,230 km（距云顶 19,980 km）']
+    ],
+    hops:[
+      {key:'cassiniVenus',  label:'第 1 跳：飞掠金星减速', note:'模型解出掠过日期 1998-04-20，真实是 1998-04-26 —— 只差 6 天。日心速度 37.3 → 34.8 km/s。'},
+      {key:'cassiniSaturn', label:'最后一跳：土星借力',     note:'模型解出掠过高空 1.998 万 km（真实 1.996 万 km，误差 19 km！），日心速度 4.7 → 16.1 km/s，直接飞出太阳系。'}
+    ],
+    result:'在土星系统待了 13 年，2005-01-14 惠更斯号在泰坦降落（人类最远的一次着陆）。2017-09-15 卡西尼号冲进土星大气销毁。',
+    tip:'去土星的路太远，得一路攒速度：被金星拽两下、再被地球推一下、路过木星再借一次，最后才够到土星。',
+    ck:['掠过土星后日心速度变大（4.7 → 16.1 km/s）','状态栏出现「飞出太阳系」','掠过高空约 2 万 km，和真实的 1.996 万 km 几乎一样']
+  },
+  {
+    id:'parker', name:'帕克太阳探测器', en:'Parker Solar Probe', year:2018, badge:'借力减速', badgeColor:'#ffb27a',
+    lede:'人类派出去撞太阳的探测器。靠连踩 7 次金星刹车，一层层往太阳里掉。',
+    chain:[
+      ['金星','刹车 1','2018-10-03　高空约 2,500 km'],
+      ['金星','刹车 2','2019-12-26　高空约 3,000 km'],
+      ['金星','刹车 3','2020-07-11　高空 800 km'],
+      ['金星','刹车 4','2021-02-20　高空 2,400 km'],
+      ['金星','刹车 5','2021-10-16　高空 3,800 km'],
+      ['金星','刹车 6','2023-08-21　高空 3,900 km'],
+      ['金星','刹车 7','2024-11-06　高空 300 km']
+    ],
+    hops:[
+      {key:'parkerVenus', label:'第 1 跳：飞掠金星刹车', note:'模型解出掠过高空 2087 km（真实约 2500 km），日心速度 36.3 → 32.2 km/s —— 一脚掉了 4 km/s。'}
+    ],
+    result:'2024-12-24 第 22 次近日点：距太阳表面 610 万 km，速度 430,000 mph（约 69 万 km/h），是全世界最快的物体。',
+    tip:'想掉进太阳，得反着来：每过一次金星就被"拽"掉一点速度，日心轨道越掉越矮，连踩 7 次就掉进日冕。',
+    ck:['借力后日心速度变小了（36.3 → 32.2 km/s）','远日点 / 轨道高度一寸寸往下掉','模型里一次演一跳：飞掠金星后的轨道被压低']
+  },
+  {
+    id:'messenger', name:'信使号', en:'MESSENGER', year:2004, badge:'借力减速', badgeColor:'#ffb27a',
+    lede:'第一艘绕着水星飞的探测器。掉到水星轨道全靠反复"刹车"。',
+    chain:[
+      ['地球','起步','2004-08-03　发射'],
+      ['金星','刹车 1','2006-10-24　高空 2,990 km'],
+      ['金星','刹车 2','2007-06-05　高空约 337 km'],
+      ['水星','刹车 1','2008-01-14　高空约 200 km'],
+      ['水星','刹车 2','2008-10-06　高空约 200 km'],
+      ['水星','刹车 3','2009-09-29　高空 228 km']
+    ],
+    hops:[
+      {key:'messengerVenus', label:'第 1 跳：飞掠金星刹车', note:'模型解出掠过日期 2006-10-18，真实是 2006-10-24 —— 只差 6 天。日心速度 37.9 → 33.9 km/s。'}
+    ],
+    result:'2011-03-18 入轨（水星轨道），靠 6 次飞掠才落下去。2015-04-30 撞水星结束任务。',
+    tip:'要落到一颗行星上，得先学会刹车：被金星拽两次、被水星拽三次，越飞越慢、越飞越低，最后才掉得进轨道。',
+    ck:['借力后日心速度变小了（37.9 → 33.9 km/s）','轨道一路向内收缩，从 1.0 AU 掉到 0.4 AU 以内','掠过日期和真实的 2006-10-24 只差 6 天']
+  },
+  {
+    id:'apollo11', name:'阿波罗 11 号', en:'Apollo 11', year:1969, badge:'直飞月球', badgeColor:'#8fd0ff',
+    lede:'人类第一次踏上另一个天体。它不借任何行星的力，全靠火箭自己推。',
+    chain:[
+      ['地球','发射','1969-07-16 13:32 UTC　土星五号'],
+      ['月球','入轨','1969-07-19 17:21:50 UT　主发动机点火 357.5 秒'],
+      ['月球','分离 + 着陆','1969-07-20　鹰号 17:44 分离，20:17:39 触地'],
+      ['月球','起飞 + 返回','1969-07-21 17:54 起飞，1969-07-24 16:50:35 返回地球']
+    ],
+    hops:[
+      {key:'apollo11', label:'奔月：1969-07-16 13:32 UTC 真实发射时刻', type:'moon',
+       note:'模型算出的月球引力圈偏差约 6.0 万 km（月球引力圈 6.6 万 km 以内），抵达时刻 1969-07-20 19:31 UTC，与真实着陆（20:17 UTC，静海）只差约 45 分钟。'}
+    ],
+    result:'着陆点：静海 Mare Tranquillitatis（0.67408°N, 23.47297°E）。月面停留 21 小时 36 分，总航时 195 小时 18 分 35 秒。',
+    tip:'月球在 38 万公里外，出发时机很讲究：发射那天月亮只亮 4.4%，着陆那天亮到 33.5%——夜里看路才看得清。',
+    ck:['状态栏出现「入轨环绕月球」','交会偏差在 6 万 km 以内（月球引力圈 6.6 万 km）','抵达时刻和真实着陆只差约 45 分钟']
+  }
+];
+const missionPanel = document.getElementById('missionPanel');
+const missionList = document.getElementById('missionList');
+const missionBtn = document.getElementById('missionBtn');
+function closeMission(){
+  missionPanel.classList.remove('show');
+  missionBtn.classList.remove('active');
+  document.body.classList.remove('rp-open');
+}
+document.getElementById('missionClose').onclick = closeMission;
+missionBtn.onclick = ()=>{
+  const on = !missionPanel.classList.contains('show');
+  missionPanel.classList.toggle('show', on);
+  missionBtn.classList.toggle('active', on);
+  document.body.classList.toggle('rp-open', on);   // 工具条让位给面板
+  if(on){ rocketPanel.classList.remove('show'); rocketBtn.classList.remove('active'); }
+};
+function renderMissions(){
+  const rows = m => m.chain.map(c =>
+    '<tr><td>'+c[0]+'</td><td>'+c[1]+'</td><td>'+c[2]+'</td></tr>').join('');
+  missionList.innerHTML = MISSIONS.map(m =>
+    '<div class="mcard">'
+    + '<h3>'+m.name+'<span class="mc-year">'+m.en+' · '+m.year+'</span>'
+    + '<span class="mc-tag" style="color:'+m.badgeColor+'">'+m.badge+'</span></h3>'
+    + '<div class="mc-lede">'+m.lede+'</div>'
+    + '<table>'+rows(m)+'</table>'
+    + '<div class="mc-hops">'+m.hops.map(h =>
+        '<div class="mc-hop"><button class="mc-play" data-m="'+m.id+'" data-h="'+h.key+'">▶ '+h.label+'</button>'
+        + '<span class="mc-hopnote">'+h.note+'</span></div>').join('')+'</div>'
+    + '<div class="mc-tip">💡 '+m.tip+'</div>'
+    + '<div class="mc-ck">🎯 检查点：'+m.ck.join(' · ')+'</div>'
+    + '<div class="mc-note">'+m.result+'</div>'
+    + '</div>').join('');
+  missionList.querySelectorAll('.mc-play').forEach(b=>{
+    b.onclick = ()=>{
+      const m = MISSIONS.find(x=>x.id===b.dataset.m);
+      const h = m && m.hops.find(x=>x.key===b.dataset.h);
+      if(m && h) playMission(m, h);
+    };
+  });
+}
+function playMission(m, h){
+  const isMoon = (h.type === 'moon');
+  const p = isMoon ? {date:'1969-07-16T13:32:00Z', g:1.05, b:30, az:90, dv:0}
+                   : HOP_PARAMS[h.key];
+  closeMission();
+  rocketPanel.classList.add('show');
+  rocketBtn.classList.add('active');
+  document.body.classList.add('rp-open');
+  simDate = new Date(p.date);
+  dateInput.value = fmtDate(simDate);
+  rpG.value = String(p.g);  rpGVal.textContent = p.g.toFixed(2);
+  rpB.value = String(Math.max(3, Math.min(60, Math.round(p.b)))); rpBVal.textContent = p.b.toFixed(2);
+  rpAz.value = String(p.az); rpAzVal.textContent = String(p.az);
+  rocketG = p.g; rocketB = p.b; rocketDv = p.dv || 0;
+  rocketTarget = isMoon ? 'moon' : 'ga';
+  rocketGa = { planet: (p.planet || 'jupiter'), inner: !!p.inner };
+  updatePreview();
+  const tr = rocketState.trajectory;
+  let line = '📖 '+m.name+'（'+m.year+'）· '+h.label+'　';
+  if(tr && tr.gaInfo){
+    const gi = tr.gaInfo;
+    line += '模型算出来：'+Math.round(gi.arriveDays)+' 天后掠过'+gi.cn
+          + '，近心点高度 '+Math.round(gi.periAltKm).toLocaleString()+' km，日心速度 '
+          + gi.speedBefore.toFixed(1)+' → '+gi.speedAfter.toFixed(1)+' km/s（'
+          + (gi.gain?'加速':'减速')+'）'
+          + (gi.escape?'，并飞出太阳系':'') + '。';
+  } else if(tr && tr.orbitType==='moon_capture'){
+    line += '模型算出来：进入月球引力圈，交会偏差 '+Math.round(tr.moonMissKm).toLocaleString()+' km。';
+  }
+  line += h.note;
+  // 保留 updatePreview 生成的物理状态行，任务说明追加为小字
+  rpStatus.innerHTML = rpStatus.innerHTML + '<small class="rp-analogy">' + line + '</small>';
+  rpStatus.className = 'rp-status '+(tr ? tr.orbitType : '');
+}
+renderMissions();
 // 火箭播放更新（在 animate 主循环里调用）
 const SEC_YR = 365.25*86400; // 秒/年
 const BURN_SLOWMO_SEC = 8;   // 发射段（点火上升）慢放到约 8 秒，便于看清起飞（与 updateRocket / animate 共用）
@@ -1232,6 +3058,10 @@ function updateRocket(dtReal){
       rocketState.phase = 'moon';
       rpStatus.textContent = '🌙 抵近月球，入轨制动...';
       rpStatus.className = 'rp-status';
+    } else if(tr.orbitType === 'moon_miss' && idx >= aLen + cLen){
+      rocketState.phase = 'done';
+      rpStatus.textContent = `❌ 没赶上窗口——这个月的月亮没转到位，差 ${fmtMiss(tr.moonMissKm)}（点重置或「跳到最近发射窗口」再试）`;
+      rpStatus.className = 'rp-status crash';
     }
   }
   if(rocketState.phase==='coastH'){
@@ -1242,10 +3072,16 @@ function updateRocket(dtReal){
     } else if(maL === 0 && idx >= total - 1){
       rocketState.phase = 'done';
       if(tr.hcEscape !== undefined){
-        rpStatus.textContent = tr.hcEscape
-          ? `🌌 已逃逸太阳系！余速 ${auPerYrToKmPerSec(tr.hcVInf).toFixed(1)} km/s（点重置）`
-          : `🔴 已抵达火星轨道距离（远日点 ${tr.hcApoAU.toFixed(2)} AU）（点重置）`;
-        rpStatus.className = 'rp-status ' + (tr.hcEscape ? 'escape' : 'elliptical');
+        if(tr.hcEscape){
+          rpStatus.textContent = `🌌 已逃逸太阳系！余速 ${auPerYrToKmPerSec(tr.hcVInf).toFixed(1)} km/s（点重置）`;
+          rpStatus.className = 'rp-status escape';
+        } else if(tr.orbitType === 'mars_miss'){
+          rpStatus.textContent = `❌ 没赶上窗口——火星这个方向要再等 780 天（这次会从旁边 ${fmtMiss(tr.marsMissKm)} 掠过，点「跳到最近发射窗口」再试）`;
+          rpStatus.className = 'rp-status crash';
+        } else {
+          rpStatus.textContent = `🔴 已抵达火星轨道距离（远日点 ${tr.hcApoAU.toFixed(2)} AU）（点重置）`;
+          rpStatus.className = 'rp-status elliptical';
+        }
       }
     }
   }
@@ -1374,8 +3210,6 @@ canvas.addEventListener('touchmove', e=>{
 canvas.addEventListener('touchend', e=>{ if(e.touches.length<2) pinchDist=0; });
 
 /* ---------- 时间系统 ---------- */
-let simDate = new Date();
-let speed = 86400; // 秒/实时秒 (86400 = 1天/秒)
 let lastFrame = performance.now();
 
 document.querySelectorAll('#speedGrp button').forEach(b=>{
@@ -1388,8 +3222,8 @@ document.querySelectorAll('#speedGrp button').forEach(b=>{
 const dateInput = document.getElementById('dateInput');
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 dateInput.value = fmtDate(simDate);
-dateInput.onchange = ()=>{ simDate = new Date(dateInput.value); };
-document.getElementById('todayBtn').onclick = ()=>{ simDate=new Date(); dateInput.value=fmtDate(simDate); };
+dateInput.onchange = ()=>{ simDate = new Date(dateInput.value); updatePreview(); };
+document.getElementById('todayBtn').onclick = ()=>{ simDate=new Date(); dateInput.value=fmtDate(simDate); updatePreview(); };
 
 /* ---------- 背景音乐（《星际穿越》风格 · 原创程序化配乐） ---------- */
 let audioCtx=null, muted=true, masterGain=null, bus=null;
@@ -1566,19 +3400,24 @@ function animate(now){
     const p = keplerPos(JPL[k], T);
     bodyMeshes[k].position.set(p.x, p.y, p.z);
   }
-  // 火星任务期间：把火星放到转移远日点位置，使绕火入轨与转移轨迹连续（理想化交会）
-  if(marsPosOverride){ bodyMeshes.Mars.position.set(marsPosOverride[0], marsPosOverride[1], marsPosOverride[2]); }
+  // 火星任务期间：火星始终按真实星历位置绘制（不再挪动到转移远日点），
+  // 交会是否成立由 computeTrajectory 计算的真实偏差给出
 
   // 轨道线远处淡出：50 AU 起淡，110 AU 全隐（默认视角 40 AU 全显示）
   orbitMat.opacity = 0.25 * Math.max(0, Math.min(1, 1 - (camDist - 50*AU)/(60*AU)));
 
-  // 更新卫星（绕母星圆轨道）
+  // 更新卫星（绕母星圆轨道；方向与行星公转一致 —— 场景系顺行 = (sinθ,0,−cosθ)）
   for(const k in MOONS){
     const m = MOONS[k];
     const parent = bodyMeshes[m.parent].position;
-    // 月球任务期间：把月球冻结在转移远地点方向，使绕月入轨与转移轨迹连续（理想化发射窗口）
-    const ang = (k === 'Moon' && moonPhaseOverride !== null) ? moonPhaseOverride : (dayT / m.period) * Math.PI*2;
-    moonMeshes[k].position.set(parent.x + m.a*Math.cos(ang), parent.y, parent.z + m.a*Math.sin(ang));
+    if(k === 'Moon'){
+      // 月球用真实星历（否则相位与真实日期对不上，阿波罗登月这类任务就不成立）
+      const off = moonOffsetAU(dayT);
+      moonMeshes[k].position.set(parent.x + off[0], parent.y + off[1], parent.z + off[2]);
+    } else {
+      const ang = moonSceneAngle(dayT, m.period);
+      moonMeshes[k].position.set(parent.x + m.a*Math.cos(ang), parent.y, parent.z + m.a*Math.sin(ang));
+    }
   }
 
   // 更新小行星
